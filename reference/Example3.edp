@@ -1,0 +1,439 @@
+load "gsl";
+include "getARGV.idp"
+
+real noiseLevel = 0.1;
+real alpha = getARGV("-alpha", 1.);
+int storeNum = 22;
+string coef = "unkown";
+string type = "potential";
+string lowrank = getARGV("-lowrank", "DFP");
+
+verbosity = 0;
+real FemErr = 1e-9;
+real cA = 1.0;
+real cB = 0.01;
+real vA = 1e-10;
+real vB = 10.0;
+
+int dataNum = 1;
+func f0 = x;
+func f1 = y;
+
+func cIndicator = max(0.2000001 - max(abs(x-0.4), abs(y-0.2)),
+                      0.2000001 - max(abs(x+0.5), abs(y+0.2)));
+func vIndicator = max(0.1500001 - max(abs(x+0.6), abs(y-0.1)),
+                      0.2000001 - max(abs(x-0.5), abs(y+0.1)));
+
+real cU = cA;
+real vU = vA;
+if(coef == "known"){
+if(type == "double" || type == "conductivity"){
+    cU = cB;
+}
+if(type == "double" || type == "potential"){
+    vU = vB;
+}
+}else{
+if(type == "double" || type == "conductivity"){
+    cU = 0.3;
+}
+if(type == "double" || type == "potential"){
+    vU = 6;
+}
+}
+func cOrigin = 0.5* (cU - cA)* (abs(cIndicator)/cIndicator + 1) + cA;
+func vOrigin = 0.5* (vU - vA)* (abs(vIndicator)/vIndicator + 1) + vA;
+
+macro Grad(u)[dx(u), dy(u)]//
+
+int nSolve = 500;
+border bound(t=0,1){x = cos(2* pi* t); y = 0.8* sin(2* pi* t); label = 1;};
+mesh Th = buildmesh(bound(nSolve));
+
+int nPlot = 200;
+real[int] finePosx((nPlot+1)*(nPlot+1));
+real[int] finePosy((nPlot+1)*(nPlot+1));
+for(int i = 0; i <= nPlot; i++)
+{
+    for(int j = 0; j <= nPlot; j++){
+        int index = i*(nPlot+1) + j;
+        finePosx[index] = i*2.0/nPlot-1.0;
+        finePosy[index] = j*2.0/nPlot-1.0;
+    }
+}
+mesh Thplot = triangulate(finePosx, finePosy);
+
+int cBoundaryNum = 1;
+int vBoundaryNum = 1;
+int boundaryFine = 1000;
+for(int i = 1; i < boundaryFine; i++)
+{
+    for(int j = 1; j < boundaryFine; j++){
+        int cMeanValue = 0;
+        int vMeanValue = 0;
+        for(int i1 = -1; i1 <= 1; i1++){
+        for(int j1 = -1; j1 <= 1; j1++){
+        if(i1 != j1){
+            if(cIndicator((i+i1)*2.0/boundaryFine-1.0, (j+j1)*2.0/boundaryFine-1.0)>0)
+            {
+                cMeanValue = cMeanValue + 1;
+            }
+            if(vIndicator((i+i1)*2.0/boundaryFine-1.0, (j+j1)*2.0/boundaryFine-1.0)>0)
+            {
+                vMeanValue = vMeanValue + 1;
+            }
+        }}}
+        if((cMeanValue == 3) ||(cMeanValue == 4) || (cMeanValue == 5)){
+            cBoundaryNum++;
+        }
+        if((vMeanValue == 3) ||(vMeanValue == 4) || (vMeanValue == 5)){
+            vBoundaryNum++;
+        }
+    }
+}
+
+real[int] cBoundaryX(cBoundaryNum);
+real[int] cBoundaryY(cBoundaryNum);
+real[int] vBoundaryX(vBoundaryNum);
+real[int] vBoundaryY(vBoundaryNum);
+int cLocalIndex = 0;
+int vLocalIndex = 0;
+for(int i = 1; i < boundaryFine; i++)
+{
+    for(int j = 1; j < boundaryFine; j++){
+        int cMeanValue = 0;
+        int vMeanValue = 0;
+        for(int i1 = -1; i1 <= 1; i1++){
+        for(int j1 = -1; j1 <= 1; j1++){
+        if(i1 != j1){
+            if(cIndicator((i+i1)*2.0/boundaryFine-1.0, (j+j1)*2.0/boundaryFine-1.0)>0)
+            {
+                cMeanValue = cMeanValue + 1;
+            }
+            if(vIndicator((i+i1)*2.0/boundaryFine-1.0, (j+j1)*2.0/boundaryFine-1.0)>0)
+            {
+                vMeanValue = vMeanValue + 1;
+            }
+        }}}
+        if((cMeanValue == 3) ||(cMeanValue == 4) || (cMeanValue == 5)){
+            cBoundaryX(cLocalIndex) = i*2.0/boundaryFine-1.0;
+            cBoundaryY(cLocalIndex) = j*2.0/boundaryFine-1.0;
+            cLocalIndex++;
+        }
+        if((vMeanValue == 3) ||(vMeanValue == 4) || (vMeanValue == 5)){
+            vBoundaryX(vLocalIndex) = i*2.0/boundaryFine-1.0;
+            vBoundaryY(vLocalIndex) = j*2.0/boundaryFine-1.0;
+            vLocalIndex++;
+        }
+    }
+}
+if(type == "conductivity"){vBoundaryNum = 1;}
+if(type == "potential"){cBoundaryNum = 1;}
+
+fespace P0solve(Th, P0);
+fespace P1solve(Th, P1);
+fespace PlotSpace(Thplot, P0);
+
+PlotSpace pic;
+P0solve[int] fData(2);
+P1solve[int] yOmega(dataNum), yU(dataNum), yData(dataNum), yC(dataNum);
+P0solve cGuess = cA;
+P0solve vGuess = vA;
+
+func int plotSave(string filename)
+{
+    ofstream file("./plotfile/" + filename + ".xyz");
+    file << Thplot.nv + cBoundaryNum + vBoundaryNum - 2 << endl;
+    file << filename << endl;
+    for(int i = 0; i < Thplot.nv; i++)
+    {
+        file << 0 << " " << Thplot(i).x << " " << Thplot(i).y << " " 
+             << 0 << " " << pic(Thplot(i).x, Thplot(i).y) << endl;
+    }
+    for(int i = 0; i < (cBoundaryNum - 1); i++)
+    {
+        file << 1 << " " << cBoundaryX(i) << " " << cBoundaryY(i) << " " 
+             << 1 << " " << 0.0 << endl;
+    }
+    for(int i = 0; i < (vBoundaryNum - 1); i++)
+    {
+        file << 2 << " " << vBoundaryX(i) << " " << vBoundaryY(i) << " " 
+             << 1 << " " << 0.0 << endl;
+    }
+    return 0;
+}
+
+fData[0] = f0;
+// fData[1] = f1;
+
+for(int k = 0; k < dataNum; k++)
+{
+    {
+        varf Au(u, v) = int2d(Th)(cOrigin* Grad(u)'* Grad(v))
+                      + int2d(Th)(vOrigin* u* v);
+        varf fTerm(u, v) = int1d(Th)(fData[k]* v);
+        varf bTerm(u, v) = int1d(Th)(1.* v);
+
+        matrix A = Au(P1solve, P1solve);
+        real[int] b = fTerm(0, P1solve);
+        real[int] B = bTerm(0, P1solve);
+
+        matrix AA = [[A,B],[B',0]];
+        set(AA, solver = sparsesolver);
+
+        real[int] bb(P1solve.ndof + 1), xx(P1solve.ndof + 1), b1(1), l(1);
+        b1 = 0;
+        bb = [b, b1];
+
+        xx = AA^-1* bb;
+
+        [yOmega[k][], l] = xx;
+    }
+    {
+        varf Au(u, v) = int2d(Th)(cA* Grad(u)'* Grad(v))
+                      + int2d(Th)(vA* u* v);
+        varf fTerm(u, v) = int1d(Th)(fData[k]* v);
+        varf bTerm(u, v) = int1d(Th)(1.* v);
+
+        matrix A = Au(P1solve, P1solve);
+        real[int] b = fTerm(0, P1solve);
+        real[int] B = bTerm(0, P1solve);
+
+        matrix AA = [[A,B],[B',0]];
+        set(AA, solver = sparsesolver);
+
+        real[int] bb(P1solve.ndof + 1), xx(P1solve.ndof + 1), b1(1), l(1);
+        b1 = 0;
+        bb = [b, b1];
+
+        xx = AA^-1* bb;
+
+        [yC[k][], l] = xx;
+    }
+    {
+        varf Au(u, v) = int2d(Th)(cGuess* Grad(u)'* Grad(v))
+                      + int2d(Th)(vGuess* u* v);
+        varf fTerm(u, v) = int1d(Th)(fData[k]* v);
+        varf bTerm(u, v) = int1d(Th)(1.* v);
+
+        matrix A = Au(P1solve, P1solve);
+        real[int] b = fTerm(0, P1solve);
+        real[int] B = bTerm(0, P1solve);
+
+        matrix AA = [[A,B],[B',0]];
+        set(AA, solver = sparsesolver);
+
+        real[int] bb(P1solve.ndof + 1), xx(P1solve.ndof + 1), b1(1), l(1);
+        b1 = 0;
+        bb = [b, b1];
+
+        xx = AA^-1* bb;
+
+        [yU[k][], l] = xx;
+    }
+
+    for(int i = 0; i < P1solve.ndof; i++){
+        real noise = (2.0* randreal2() - 1.0)* noiseLevel;
+        yData[k][][i] = yOmega[k][][i] + abs(yOmega[k][][i] - yC[k][][i])* noise;
+    }
+}
+
+real residual = 0.0;
+for(int k = 0; k < dataNum; k++)
+{
+    residual = residual + int1d(Th)((yU[k] - yData[k])^2);
+}
+residual = sqrt(residual);
+{
+    ofstream file("./residual.txt");
+    file << residual << " " << -1 << endl;
+}
+
+real[int] diagFunc(P0solve.ndof* 2);
+{
+    P0solve p0x = x;
+    P0solve p0y = y;
+    for(int i = 0; i < P0solve.ndof; i++){
+        real xpos = p0x[][i];
+        real ypos = p0y[][i];
+        func dis = sqrt((x - xpos)^2 + (y - ypos)^2) + 1e-10;
+        diagFunc(i + 0* P0solve.ndof) = 1/
+        ((int1d(Th)(1/dis^2.0))^0.5);
+        diagFunc(i + 1* P0solve.ndof) = 1/
+        ((int1d(Th)(1/dis^2.0))^1.5);
+    }
+}
+real[int, int] sStore(P0solve.ndof* 2, storeNum);
+real[int, int] yStore(P0solve.ndof* 2, storeNum);
+real[int, int] ryStore(P0solve.ndof* 2, storeNum);
+for(int j = 0; j < storeNum; j++){
+for(int i = 0; i < P0solve.ndof* 2; i++){
+    sStore(i, j) = 0.0;
+    yStore(i, j) = 0.0;
+    ryStore(i, j) = 0.0;
+}
+}
+
+int storeCount = 0;
+func real[int] Rsolver(real[int] &input)
+{
+    if(lowrank == "DFP")
+    {
+        real[int] result = input;
+        for(int i = 0; i < P0solve.ndof* 2; i++)
+        {
+            result(i) = result(i)* diagFunc(i);
+        }
+        for(int j = 0; j < storeCount; j++)
+        {
+            real[int] sj = sStore(:, j);
+            real[int] yj = yStore(:, j);
+            real[int] ryj = ryStore(:, j);
+            result = result + ((input'* sj)/(sj'* yj))* sj;
+            result = result - ((input'* ryj)/ (yj'* ryj))* ryj;
+        }
+        return result;
+    }
+    if(lowrank == "BFG")
+    {
+        real[int] result = input;
+        for(int i = 0; i < P0solve.ndof* 2; i++)
+        {
+            result(i) = result(i)* diagFunc(i);
+        }
+        for(int j = 0; j < storeCount; j++)
+        {
+            real[int] sj = sStore(:, j);
+            real[int] yj = yStore(:, j);
+            real[int] ryj = ryStore(:, j);
+            result = result + (1.0 + ((yj'* ryj)/ (sj'* yj)))*((input'* sj)/(sj'* yj))* sj;
+            result = result - ((input'* ryj)/(sj'* yj))* sj;
+            result = result - ((input'* sj)/(sj'* yj))* ryj;
+        }
+        return result;
+    }
+}
+
+for(int loopIndex = 0; loopIndex < storeNum; loopIndex++)
+{
+    P0solve gradc = 0.0, gradv = 0.0;
+    for(int k = 0; k < dataNum; k++){
+        P1solve unknown, p1test;
+        P0solve yErr = yData[k] - yC[k];
+        problem DualEquation(unknown, p1test, solver = Cholesky)
+                = int2d(Th)(cA* Grad(unknown)'* Grad(p1test))
+                + int2d(Th)(vA* unknown* p1test)
+                + int1d(Th)(unknown* p1test/ alpha)
+                - int1d(Th)(yErr* p1test/ alpha);
+        DualEquation;
+        yErr = dx(unknown)* x + dy(unknown)* y/ 0.8/ 0.8;
+        yErr = yErr/sqrt(x^2 + y^2/ 0.8^2/ 0.8^2);
+        DualEquation;
+
+        gradc = gradc + Grad(unknown)'* Grad(yU[k]);
+        gradv = gradv + unknown* yU[k];
+    }
+    real[int] Atb = [gradc[], gradv[]];
+    real[int] RAx = Rsolver(Atb);
+    [gradc[], gradv[]] = RAx;
+    
+    gradc = max(gradc, 0.0);
+    gradv = min(gradv, 0.0);
+
+    if(coef == "known"){
+        if(type == "double" || type == "conductivity"){
+            real[int] gradcSort = gradc[];
+            gradcSort.sort;
+            real tau1 = gradcSort[int(gradcSort.n* 0.99)];
+            real tau2 = gradcSort[int(gradcSort.n* 0.01)];
+            real slope = abs(cB - cA)/ abs(tau1 - tau2);
+            cGuess = 0.5* cGuess + 0.5* (slope* (tau1 - gradc) + min(cA, cB));
+        }else{cGuess = cA;}
+        if(type == "double" || type == "potential"){
+            real[int] gradvSort = gradv[];
+            gradvSort.sort;
+            real tau1 = gradvSort[int(gradvSort.n* 0.99)];
+            real tau2 = gradvSort[int(gradvSort.n* 0.01)];
+            real slope = abs(vB - vA)/ abs(tau1 - tau2);
+            vGuess = 0.5* vGuess + 0.5* (slope* (tau1 - gradv) + min(vA, vB));
+        }else{vGuess = vA;}
+    }else{
+        if(type == "double" || type == "conductivity"){
+            cGuess = cA - gradc* abs(cA - cB);
+        }else{cGuess = cA;}
+        if(type == "double" || type == "potential"){
+            vGuess = vA - gradv* abs(vA - vB);
+        }else{vGuess = vA;}
+    }
+
+    cGuess = max(min(cA, cB), cGuess);
+    cGuess = min(max(cA, cB), cGuess);
+    vGuess = max(min(vA, vB), vGuess);
+    vGuess = min(max(vA, vB), vGuess);
+
+    if(loopIndex % 5 == 1){
+        pic = vGuess;
+        plotSave("Example3alpha" + alpha + lowrank + loopIndex);
+    }
+
+    real residual = 0.0;
+    P0solve Axc = 0.0;
+    P0solve Axv = 0.0;
+    for(int k = 0; k < dataNum; k++){
+        P1solve unknown, p1test;
+        problem GuessEquation(unknown, p1test, solver = Cholesky)
+                = int2d(Th)(cGuess* Grad(unknown)'* Grad(p1test))
+                + int2d(Th)(vGuess* unknown* p1test)
+                - int1d(Th)(fData[k]* p1test);
+        GuessEquation;
+        yU[k] = unknown;
+        residual = residual + int1d(Th)((yU[k] - yData[k])^2);
+
+        P0solve yErr = yU[k] - yC[k];
+        problem DualEquation(unknown, p1test, solver = Cholesky)
+                = int2d(Th)(cA* Grad(unknown)'* Grad(p1test))
+                + int2d(Th)(vA* unknown* p1test)
+                + int1d(Th)(unknown* p1test/ alpha)
+                - int1d(Th)(yErr* p1test/ alpha);
+        DualEquation;
+        yErr = dx(unknown)* x + dy(unknown)* y/ 0.8/ 0.8;
+        yErr = yErr/sqrt(x^2 + y^2/ 0.8^2/ 0.8^2);
+        DualEquation;
+
+        Axc = Axc + Grad(yU[k])'* Grad(unknown);
+        Axv = Axv + yU[k]* unknown;
+    }
+    {
+        ofstream file("./residual.txt", append);
+        file << sqrt(residual) << " " << loopIndex << endl;
+    }
+
+    P0solve cErr = (cA - cGuess)/ abs(cA - cB);
+    P0solve vErr = (vA - vGuess)/ abs(vA - vB);
+
+    real[int] yk = [Axc[], Axv[]];
+    real[int] sk = [cErr[], vErr[]];
+    real[int] ryk = Rsolver(yk);
+
+    if(loopIndex == 0){
+        P0solve rykc, rykv;
+        [rykc[], rykv[]] = ryk;
+        real scale1 = 0.0;
+        real scale2 = 0.0;
+        if(type == "double" || type == "conductivity"){
+            scale1 = int2d(Th)(abs(cErr))/ int2d(Th)(abs(rykc));
+            // scale1 = sqrt((cErr[]'* cErr[])/ (rykc[]'* rykc[]));
+        }
+        if(type == "double" || type == "potential"){
+            scale2 = int2d(Th)(abs(vErr))/ int2d(Th)(abs(rykv));
+            // scale2 = sqrt((vErr[]'* vErr[])/ (rykv[]'* rykv[]));
+        }
+        diagFunc(0* P0solve.ndof:1* P0solve.ndof) *= scale1;
+        diagFunc(1* P0solve.ndof:2* P0solve.ndof) *= scale2;
+        ryk = Rsolver(yk);
+    }
+    sStore(:, (loopIndex % storeNum)) = sk;
+    yStore(:, (loopIndex % storeNum)) = yk;
+    ryStore(:, (loopIndex % storeNum)) = ryk;
+    storeCount++;
+}
