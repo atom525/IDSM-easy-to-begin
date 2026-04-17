@@ -314,7 +314,8 @@ class LowRankPreconditioner:
 # R₀ initialization
 # ============================================================
 
-def initialize_r0_diagonal(mesh, cond_exponent=0.5, pot_exponent=0.0):
+def initialize_r0_diagonal(mesh, cond_exponent=0.5, pot_exponent=0.0,
+                           constant_value=None, epsilon=0.02):
     """初始化 R₀ 对角预条件子。
 
     Paper 1, Section 4.1：离散 R₀ 基于 ‖∇Φ_x‖_{L²(Γ)} 的构造。
@@ -325,19 +326,39 @@ def initialize_r0_diagonal(mesh, cond_exponent=0.5, pot_exponent=0.0):
 
     其中 dis = |x_i − x'|，x_i 是三角形 i 的质心，x' 在 Γ 上运行。
 
+    对于 Example 2 (double 型)，FreeFEM Example2.edp L217-224 使用常数初始化:
+      diagFunc(i) = constant_value（默认 100.0）
+
     Parameters
     ----------
     mesh : EllipticMesh
     cond_exponent : float
-        电导率块的指数，默认 0.5（FreeFEM L260–261）。
+        电导率块的指数，默认 0.5（FreeFEM Example1: L260–261）。
     pot_exponent : float
         势块的指数，默认 0.0（即恒等，FreeFEM L262–263）。
+    constant_value : float or None
+        若非 None，则启用 Example 2 模式：D(i) = min_θ |centroid_i − Γ(θ)|²
+        （FreeFEM Example2.edp L217-224: diagFunc = min(disI²)）。
+        此参数的具体数值不影响结果（仅作为模式开关）。
+    epsilon : float
+        边界截断距离，默认 0.02。
 
     Returns
     -------
     diag : array (2*M,) — [conductivity_part, potential_part]
     """
     M = mesh.n_triangles
+
+    if constant_value is not None:
+        # Example 2 模式（FreeFEM Example2.edp L217-224）：
+        # diagFunc(i) = min_θ |centroid_i - Γ(θ)|²
+        # 其中 100.0 只是初始上界，真正的值是到边界最近点的距离平方。
+        from .utils import distance_to_boundary
+        d2b = distance_to_boundary(mesh, mesh.centroids)
+        D = d2b ** 2  # min distance squared（匹配 FreeFEM disI^2）
+        D[d2b < epsilon] = 0.0
+        return np.concatenate([D, D.copy()])
+
     centroids = mesh.centroids
 
     bdry_edges = mesh.boundary_edges
@@ -372,6 +393,7 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
              alpha=1.0, n_iter=22, lowrank_method='BFG',
              problem_type='conductivity', coeff_known=False,
              cond_exponent=0.5, pot_exponent=0.0,
+             r0_constant=None,
              verbose=True, runtime_config=None):
     """Run the IDSM iterative scheme (Algorithm 3.2).
 
@@ -393,6 +415,7 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
     coeff_known : bool — True for known-coefficient mapping
     cond_exponent : float — R₀ 对角中 conductivity 块的指数（FreeFEM Example1: 0.5）
     pot_exponent : float — R₀ 对角中 potential 块的指数（FreeFEM Example3: 1.5, Example1: 0.0）
+    r0_constant : float or None — 若非 None，R₀ 使用常数初始化（FreeFEM Example2: 100.0）
     verbose : bool
     runtime_config : RuntimeConfig or None
 
@@ -440,7 +463,8 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
         w_fixed.append(w_k)
 
     diag = initialize_r0_diagonal(mesh, cond_exponent=cond_exponent,
-                                   pot_exponent=pot_exponent)
+                                   pot_exponent=pot_exponent,
+                                   constant_value=r0_constant)
     R = LowRankPreconditioner(diag, method=lowrank_method, max_store=n_iter)
 
     sigma_guess = np.full(M_tri, sigma_bg)

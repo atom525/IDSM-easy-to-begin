@@ -3,7 +3,12 @@
 import numpy as np
 import pytest
 
-from IDSM.src.forward_solver import generate_cauchy_data, make_conductivity_example1
+from IDSM.src.forward_solver import (
+    generate_cauchy_data,
+    generate_cauchy_data_general,
+    make_conductivity_example1,
+    make_double_example2,
+)
 from IDSM.src.idsm import run_idsm, apply_regularized_dtn
 from IDSM.src.fem import (
     assemble_stiffness_matrix,
@@ -154,3 +159,82 @@ def test_regularized_dtn_zero_input_gives_zero(mesh):
     v = np.zeros(mesh.n_points)
     w = apply_regularized_dtn(mesh, v, A_op, alpha=1.0, sigma_bg=1.0)
     assert np.allclose(w, 0.0, atol=1e-12)
+
+
+# ============================================================
+# Example 2 (double 型) 测试
+# ============================================================
+
+def test_idsm_double_type_residual_decreases(mesh):
+    """Double 型 IDSM 应能运行且残差下降。
+
+    使用 FreeFEM Example2.edp 参数：
+      σ₀=1.0, v₀=1.0, α=0.1, DFP, R₀=100.0（常数）。
+    """
+    sigma_true, potential_true, u_sigma, u_potential = make_double_example2(mesh)
+
+    cauchy = generate_cauchy_data_general(
+        mesh, sigma_true, potential_true,
+        [lambda x, y: x, lambda x, y: y],
+        noise_level=0.05,
+        rng=np.random.default_rng(42),
+    )
+
+    hist = run_idsm(
+        mesh, cauchy, n_iter=5,
+        sigma_bg=1.0, potential_bg=1.0,
+        sigma_range=0.01, potential_range=10.0,
+        alpha=0.1, lowrank_method='DFP',
+        problem_type='double', coeff_known=False,
+        r0_constant=100.0,
+        verbose=False,
+    )
+
+    # 基本约束检查
+    sf = hist['sigma_final']
+    vf = hist['potential_final']
+    assert np.all(sf >= 0.01 - 1e-10), f"σ 下界违反: min={sf.min()}"
+    assert np.all(sf <= 1.0 + 1e-10), f"σ 上界违反: max={sf.max()}"
+    assert np.all(vf >= 1.0 - 1e-10), f"v 下界违反: min={vf.min()}"
+    assert np.all(vf <= 10.0 + 1e-10), f"v 上界违反: max={vf.max()}"
+
+    # 残差有限且下降
+    res = hist['residuals']
+    assert np.all(np.isfinite(res)), "残差包含非有限值"
+    assert res[-1] < res[0], f"残差未下降: {res[0]:.4e} → {res[-1]:.4e}"
+
+    # 历史长度正确
+    assert len(hist['sigma_guess']) == 5
+    assert len(hist['potential_guess']) == 5
+
+
+def test_idsm_double_type_both_fields_nontrivial(mesh):
+    """Double 型重建应同时更新 σ 和 v（均非恒等于背景值）。"""
+    sigma_true, potential_true, _, _ = make_double_example2(mesh)
+
+    cauchy = generate_cauchy_data_general(
+        mesh, sigma_true, potential_true,
+        [lambda x, y: x, lambda x, y: y],
+        noise_level=0.02,
+        rng=np.random.default_rng(99),
+    )
+
+    hist = run_idsm(
+        mesh, cauchy, n_iter=5,
+        sigma_bg=1.0, potential_bg=1.0,
+        sigma_range=0.01, potential_range=10.0,
+        alpha=0.1, lowrank_method='DFP',
+        problem_type='double', r0_constant=100.0,
+        verbose=False,
+    )
+
+    sf = hist['sigma_final']
+    vf = hist['potential_final']
+
+    # σ 应有偏离背景的区域（夹杂体处 σ < 1.0）
+    sigma_deviation = np.max(np.abs(sf - 1.0))
+    assert sigma_deviation > 0.01, f"σ 未偏离背景: max deviation={sigma_deviation:.6f}"
+
+    # v 应有偏离背景的区域（夹杂体处 v > 1.0）
+    potential_deviation = np.max(np.abs(vf - 1.0))
+    assert potential_deviation > 0.01, f"v 未偏离背景: max deviation={potential_deviation:.6f}"

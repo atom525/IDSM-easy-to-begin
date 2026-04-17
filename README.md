@@ -160,6 +160,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `make_conductivity_example1(mesh)` -- Example 1 (two insulating squares)
 - `make_conductivity_conductive(mesh)` -- Conductive variant ($\sigma=3.0$)
 - `make_conductivity_single(mesh)` -- Single circular inclusion
+- `make_double_example2(mesh)` -- Example 2 (simultaneous $\sigma$ + $v$, double type)
 - `make_potential_example3(mesh)` -- Example 3 (potential-only, DOT)
 
 ### `src/utils.py`
@@ -171,6 +172,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `MeshConfig` -- Mesh resolution parameters
 - `FullIDSMConfig` -- Full-data IDSM hyperparameters (Algorithm 3.2)
 - `PartialIDSMConfig` -- Partial-data IDSM hyperparameters (Algorithm 5.1)
+- `DoubleIDSMConfig` -- Example 2 (double type) hyperparameters (FreeFEM Example2.edp)
 - `Notebook01Config` ... `Notebook04Config` -- Per-notebook configuration dataclasses
 
 ## Notebook Guide

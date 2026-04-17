@@ -96,13 +96,32 @@ class PartialIDSMConfig:
 
 
 @dataclass
+class DoubleIDSMConfig:
+    """Example 2 (double 型) 专用配置，参数来自 FreeFEM Example2.edp。"""
+    sigma_bg: float = 1.0
+    potential_bg: float = 1.0       # Example2: vA=1.0（不同于 Example1/3 的 1e-10）
+    sigma_range: float = 0.01       # FreeFEM: cB=0.01
+    potential_range: float = 10.0   # FreeFEM: vB=10.0
+    alpha: float = 0.1              # FreeFEM Example2: alpha=0.1
+    n_iter: int = 22
+    lowrank_method: str = "DFP"     # FreeFEM Example2 默认 DFP
+    problem_type: str = "double"
+    coeff_known: bool = False
+    r0_constant: float = 100.0      # FreeFEM Example2.edp L217-224: 常数 R₀
+
+
+@dataclass
 class Notebook04Config:
     noise_levels: List[float] = field(default_factory=lambda: [0.0, 0.1, 0.3])
     eps_sweep: List[float] = field(
         default_factory=lambda: [0.0, 0.05, 0.1, 0.15, 0.2, 0.3]
     )
+    alpha_sweep: List[float] = field(
+        default_factory=lambda: [0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+    )
     dsm_gamma: float = 0.5
     mesh: MeshConfig = field(default_factory=MeshConfig)
     full: FullIDSMConfig = field(default_factory=FullIDSMConfig)
     partial: PartialIDSMConfig = field(default_factory=PartialIDSMConfig)
+    double: DoubleIDSMConfig = field(default_factory=DoubleIDSMConfig)
 

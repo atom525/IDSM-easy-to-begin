@@ -228,6 +228,51 @@ def generate_cauchy_data(mesh, sigma_true, source_funcs, noise_level=0.0, rng=No
 # 附加示例几何（Phase 4）
 # ============================================================
 
+def make_double_example2(mesh):
+    """创建 Example 2 (double 型, 同时恢复 conductivity + potential) 的真实夹杂体。
+
+    FreeFEM Example2.edp:
+      type = "double", coef = "unkown"
+      σ₀ = 1.0 (cA), σ_range = 0.01 (cB), σ_inclusion = 0.3 (cU)
+      v₀ = 1.0 (vA), v_range = 10.0 (vB), v_inclusion = 6.0 (vU)
+
+      电导率夹杂体（2 个方形，与 Example 1 相同）:
+        - 中心 (0.4, 0.2), 半宽 0.2
+        - 中心 (−0.5, −0.2), 半宽 0.2
+      Potential 夹杂体（2 个方形，不同位置）:
+        - 中心 (−0.4, 0.1), 半宽 0.2
+        - 中心 (0.5, −0.1), 半宽 0.2
+
+    Returns
+    -------
+    sigma, potential, u_sigma, u_potential
+    """
+    cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
+
+    sigma_bg = 1.0
+    sigma_inclusion = 0.3
+    potential_bg = 1.0
+    potential_inclusion = 6.0
+
+    # 电导率夹杂体（同 Example 1）
+    in_c1 = square_inclusion(cx, cy, (0.4, 0.2), 0.2)
+    in_c2 = square_inclusion(cx, cy, (-0.5, -0.2), 0.2)
+
+    # Potential 夹杂体（不同位置）
+    in_v1 = square_inclusion(cx, cy, (-0.4, 0.1), 0.2)
+    in_v2 = square_inclusion(cx, cy, (0.5, -0.1), 0.2)
+
+    sigma = np.full(mesh.n_triangles, sigma_bg)
+    sigma[in_c1 | in_c2] = sigma_inclusion
+
+    potential = np.full(mesh.n_triangles, potential_bg)
+    potential[in_v1 | in_v2] = potential_inclusion
+
+    u_sigma = sigma - sigma_bg
+    u_potential = potential - potential_bg
+    return sigma, potential, u_sigma, u_potential
+
+
 def make_potential_example3(mesh):
     """创建 Example 3 (仅 potential 型, DOT) 的真实夹杂体。
 

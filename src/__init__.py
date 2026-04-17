@@ -25,6 +25,7 @@ from .forward_solver import (
     make_conductivity_conductive,
     make_conductivity_example1,
     make_conductivity_single,
+    make_double_example2,
     make_potential_example3,
     solve_forward,
     solve_forward_general,
@@ -48,6 +49,7 @@ from .config import (
     MeshConfig,
     FullIDSMConfig,
     PartialIDSMConfig,
+    DoubleIDSMConfig,
     Notebook04Config,
 )
 
@@ -73,6 +75,7 @@ __all__ = [
     "make_conductivity_conductive",
     "make_conductivity_example1",
     "make_conductivity_single",
+    "make_double_example2",
     "make_potential_example3",
     "solve_forward",
     "solve_forward_general",
@@ -98,5 +101,6 @@ __all__ = [
     "MeshConfig",
     "FullIDSMConfig",
     "PartialIDSMConfig",
+    "DoubleIDSMConfig",
     "Notebook04Config",
 ]

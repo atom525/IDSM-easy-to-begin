@@ -23,6 +23,7 @@ from src.forward_solver import (
     make_conductivity_conductive,
     make_conductivity_single,
     make_potential_example3,
+    make_double_example2,
     generate_cauchy_data,
     generate_cauchy_data_general,
     solve_forward,
@@ -781,6 +782,203 @@ plt.colorbar(im, ax=ax, shrink=0.8)
 fig.suptitle(r'Single vs Multiple Inclusions ($\varepsilon=10\%$)', fontsize=14, y=1.01)
 plt.tight_layout()
 save_fig(fig, '04_single_vs_multiple.png')
+
+
+# ============================================================
+# Section 8: Alpha Parameter Sweep (Task 2)
+# ============================================================
+print("\n" + "=" * 60)
+print("  Section 8: Alpha Parameter Sweep")
+print("=" * 60)
+
+alpha_sweep = cfg.alpha_sweep
+iou_alpha_list = []
+res_alpha_list = []
+sigma_min_alpha_list = []
+
+for alpha_val in alpha_sweep:
+    np.random.seed(runtime_cfg.random_seed)
+    cauchy_alpha = generate_cauchy_data(mesh, sigma_true, sources, noise_level=0.1)
+
+    hist_a = run_idsm(
+        mesh, cauchy_alpha,
+        sigma_bg=cfg.full.sigma_bg, sigma_range=cfg.full.sigma_range,
+        alpha=alpha_val, n_iter=cfg.full.n_iter,
+        lowrank_method=cfg.full.lowrank_method,
+        problem_type=cfg.full.problem_type, coeff_known=cfg.full.coeff_known,
+        verbose=False, runtime_config=runtime_cfg,
+    )
+    sf_a = hist_a['sigma_final']
+    iou_a = compute_iou(u_true, sf_a - 1.0, mesh)
+    iou_alpha_list.append(iou_a)
+    res_alpha_list.append(hist_a['residuals'][-1])
+    sigma_min_alpha_list.append(float(sf_a.min()))
+    print(f"  α={alpha_val:8.3f}: IoU={iou_a:.4f}, σ_min={sf_a.min():.4f}, "
+          f"residual={hist_a['residuals'][-1]:.4e}")
+
+# --- Figure 14: 04_alpha_sweep.png ---
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+ax = axes[0]
+ax.semilogx(alpha_sweep, iou_alpha_list, 'o-', color='tab:blue', markersize=7)
+ax.set_xlabel(r'Regularization parameter $\alpha$')
+ax.set_ylabel('IoU')
+ax.set_title(r'Reconstruction Quality vs $\alpha$')
+ax.grid(True, alpha=0.3)
+
+ax = axes[1]
+ax.semilogx(alpha_sweep, sigma_min_alpha_list, 's-', color='tab:red', markersize=7)
+ax.axhline(y=0.3, color='k', linestyle='--', alpha=0.5, label=r'True $\sigma=0.3$')
+ax.set_xlabel(r'Regularization parameter $\alpha$')
+ax.set_ylabel(r'$\sigma_{\min}$')
+ax.set_title(r'Inclusion Intensity Recovery vs $\alpha$')
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+ax = axes[2]
+ax.loglog(alpha_sweep, res_alpha_list, '^-', color='tab:green', markersize=7)
+ax.set_xlabel(r'Regularization parameter $\alpha$')
+ax.set_ylabel('Final Residual')
+ax.set_title(r'Final Residual vs $\alpha$')
+ax.grid(True, alpha=0.3)
+
+fig.suptitle(r'Alpha Parameter Sweep ($\varepsilon=10\%$, BFG, 22 iterations)',
+             fontsize=14, y=1.01)
+plt.tight_layout()
+save_fig(fig, '04_alpha_sweep.png')
+
+
+# ============================================================
+# Section 9: Example 2 — Double Type (Conductivity + Potential)
+# ============================================================
+print("\n" + "=" * 60)
+print("  Section 9: Example 2 (Double Type)")
+print("=" * 60)
+
+dcfg = cfg.double
+sigma_ex2, potential_ex2, u_sigma_ex2, u_potential_ex2 = make_double_example2(mesh)
+
+np.random.seed(runtime_cfg.random_seed)
+cauchy_ex2 = generate_cauchy_data_general(
+    mesh, sigma_ex2, potential_ex2, sources, noise_level=0.1,
+)
+
+hist_ex2 = run_idsm(
+    mesh, cauchy_ex2,
+    sigma_bg=dcfg.sigma_bg, potential_bg=dcfg.potential_bg,
+    sigma_range=dcfg.sigma_range, potential_range=dcfg.potential_range,
+    alpha=dcfg.alpha, n_iter=dcfg.n_iter,
+    lowrank_method=dcfg.lowrank_method,
+    problem_type=dcfg.problem_type, coeff_known=dcfg.coeff_known,
+    r0_constant=dcfg.r0_constant,
+    verbose=True, runtime_config=runtime_cfg,
+)
+
+sf_ex2 = hist_ex2['sigma_final']
+vf_ex2 = hist_ex2['potential_final']
+res_ex2 = hist_ex2['residuals']
+
+iou_sigma_ex2 = compute_iou(u_sigma_ex2, sf_ex2 - dcfg.sigma_bg, mesh)
+iou_potential_ex2 = compute_iou(u_potential_ex2, vf_ex2 - dcfg.potential_bg, mesh)
+print(f"  Example 2 结果:")
+print(f"    σ: IoU={iou_sigma_ex2:.4f}, range=[{sf_ex2.min():.3f}, {sf_ex2.max():.3f}]")
+print(f"    v: IoU={iou_potential_ex2:.4f}, range=[{vf_ex2.min():.3f}, {vf_ex2.max():.3f}]")
+print(f"    Residual: {res_ex2[0]:.4e} → {res_ex2[-1]:.4e}")
+
+# Example 2 真值夹杂体位置
+EX2_COND_BOXES = [
+    {'center': (0.4, 0.2), 'half_width': 0.2},
+    {'center': (-0.5, -0.2), 'half_width': 0.2},
+]
+EX2_POT_BOXES = [
+    {'center': (-0.4, 0.1), 'half_width': 0.2},
+    {'center': (0.5, -0.1), 'half_width': 0.2},
+]
+
+# --- Figure 15: 04_example2_double.png ---
+fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+
+# 真值 σ
+ax = axes[0, 0]
+im = ax.tripcolor(tri, sigma_ex2, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=1.5)
+for box in EX2_COND_BOXES:
+    cx, cy = box['center']
+    hw = box['half_width']
+    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
+                 edgecolor='k', linewidth=2, linestyle='--'))
+ax.set_aspect('equal')
+ax.set_title(r'True $\sigma$ (insulating, $\sigma_{\mathrm{inc}}=0.3$)')
+plt.colorbar(im, ax=ax, shrink=0.8)
+
+# 重建 σ
+ax = axes[0, 1]
+im = ax.tripcolor(tri, sf_ex2, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=1.5)
+for box in EX2_COND_BOXES:
+    cx, cy = box['center']
+    hw = box['half_width']
+    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
+                 edgecolor='k', linewidth=2, linestyle='--'))
+ax.set_aspect('equal')
+ax.set_title(f'Reconstructed $\\sigma$: IoU={iou_sigma_ex2:.3f}')
+plt.colorbar(im, ax=ax, shrink=0.8)
+
+# 残差曲线
+ax = axes[0, 2]
+ax.semilogy(range(len(res_ex2)), res_ex2, 'b-o', markersize=3)
+ax.set_xlabel('Iteration')
+ax.set_ylabel('Residual')
+ax.set_title('Residual Convergence')
+ax.grid(True, alpha=0.3)
+
+# 真值 v
+ax = axes[1, 0]
+im = ax.tripcolor(tri, potential_ex2, cmap='YlOrRd', shading='flat', vmin=0.5, vmax=7.0)
+for box in EX2_POT_BOXES:
+    cx, cy = box['center']
+    hw = box['half_width']
+    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
+                 edgecolor='k', linewidth=2, linestyle='--'))
+ax.set_aspect('equal')
+ax.set_title(r'True $v$ (potential, $v_{\mathrm{inc}}=6.0$)')
+plt.colorbar(im, ax=ax, shrink=0.8)
+
+# 重建 v
+ax = axes[1, 1]
+im = ax.tripcolor(tri, vf_ex2, cmap='YlOrRd', shading='flat', vmin=0.5, vmax=7.0)
+for box in EX2_POT_BOXES:
+    cx, cy = box['center']
+    hw = box['half_width']
+    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
+                 edgecolor='k', linewidth=2, linestyle='--'))
+ax.set_aspect('equal')
+ax.set_title(f'Reconstructed $v$: IoU={iou_potential_ex2:.3f}')
+plt.colorbar(im, ax=ax, shrink=0.8)
+
+# 参数表
+ax = axes[1, 2]
+ax.axis('off')
+param_text = (
+    f"Example 2 (Double Type)\n"
+    f"{'─' * 30}\n"
+    f"α = {dcfg.alpha}\n"
+    f"Low-rank: {dcfg.lowrank_method}\n"
+    f"R₀ = {dcfg.r0_constant} (constant)\n"
+    f"σ₀ = {dcfg.sigma_bg}, σ range = {dcfg.sigma_range}\n"
+    f"v₀ = {dcfg.potential_bg}, v range = {dcfg.potential_range}\n"
+    f"Noise = 10%, Iter = {dcfg.n_iter}\n"
+    f"{'─' * 30}\n"
+    f"σ IoU = {iou_sigma_ex2:.4f}\n"
+    f"v IoU = {iou_potential_ex2:.4f}\n"
+    f"Final residual = {res_ex2[-1]:.4e}"
+)
+ax.text(0.1, 0.5, param_text, transform=ax.transAxes, fontsize=12,
+        verticalalignment='center', fontfamily='monospace',
+        bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+
+fig.suptitle(r'Example 2: Simultaneous $\sigma$ + $v$ Recovery ($\varepsilon=10\%$)',
+             fontsize=14, y=1.01)
+plt.tight_layout()
+save_fig(fig, '04_example2_double.png')
 
 
 # ============================================================
