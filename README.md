@@ -33,7 +33,7 @@ Given boundary measurements (Cauchy data) $\{(f_\ell, y_\ell^d)\}_{\ell=1}^L$, t
 ### Requirements
 
 - Python 3.8+
-- NumPy, SciPy, Matplotlib, MeshPy
+- NumPy, SciPy, Matplotlib, MeshPy, scikit-fem
 
 ### Setup
 
@@ -80,7 +80,9 @@ IDSM/
     __init__.py          # Package exports
     config.py            # Centralized hyperparameters (RuntimeConfig, etc.)
     mesh.py              # Mesh generation, boundary extraction, coarse mesh
-    fem.py               # P1 FEM assembly (stiffness, mass, boundary, Robin)
+    fem.py               # P1 FEM public API (delegates to scikit-fem backend)
+    fem_skfem.py         # scikit-fem backed FEM assembly (default backend)
+    fem_legacy.py        # Hand-written P1 FEM (retained for regression testing)
     forward_solver.py    # Forward PDE solver, Cauchy data generation
     dsm.py               # Classical DSM (Laplace-Beltrami, indicator)
     idsm.py              # Full-data IDSM (Algorithm 3.2)
@@ -92,12 +94,15 @@ IDSM/
     03_iterative_dsm.ipynb       # Phase 3: IDSM with DtN map
     04_comparative_study.ipynb   # Phase 4: Full comparison
   tests/
-    test_mesh.py         # Mesh area, boundary, coarsening
-    test_fem.py          # Stiffness symmetry, mass, Neumann solver
-    test_forward.py      # Forward solver, noise model
-    test_dsm.py          # Eigenvalues, indicator
-    test_idsm.py         # Box constraints, residual decrease
-    test_idsm_partial.py # Data completion, HR-DtN, lambda
+    test_mesh.py             # Mesh area, boundary, coarsening
+    test_fem.py              # Stiffness symmetry, mass, Neumann solver
+    test_fem_regression.py   # skfem vs legacy numerical agreement
+    test_forward.py          # Forward solver, noise model
+    test_dsm.py              # Eigenvalues, indicator
+    test_idsm.py             # Box constraints, residual decrease
+    test_idsm_partial.py     # Data completion, HR-DtN, lambda
+    test_utils.py            # Distance, IoU, grid projection
+    test_config.py           # Configuration defaults and env vars
   reference/
     Example1.edp ... Example5.edp   # FreeFEM reference code
   figures/               # Generated figures from notebooks
@@ -114,9 +119,15 @@ IDSM/
 - `fine_to_coarse_p0` / `coarse_to_fine_p0` -- P0 inter-mesh projection
 
 ### `src/fem.py`
+
+FEM public API, backed by scikit-fem (default) or hand-written legacy implementation (`IDSM_FEM_LEGACY=1`).
+
 - `assemble_stiffness_matrix(mesh, sigma)` -- Stiffness matrix $K_{ij} = \int \sigma \nabla\phi_j \cdot \nabla\phi_i$
 - `assemble_mass_matrix(mesh, coeff)` -- Mass matrix $M_{ij} = \int q\,\phi_j \phi_i$
 - `assemble_boundary_mass_matrix(mesh)` -- Boundary mass $M_\Gamma$
+- `assemble_partial_boundary_mass_matrix(mesh, gamma_d_node_mask)` -- Split $M_\Gamma \to M_D + M_N$ (Paper 3)
+- `compute_boundary_normal_flux(mesh, sigma, y)` -- Boundary normal flux $\sigma\,\partial y/\partial n$
+- `compute_boundary_normal_derivative(mesh, z, sigma_bg)` -- Generic $\sigma_0\partial z/\partial n$ (geometry-independent)
 - `solve_neumann_system(K, b, B)` -- Saddle-point solve $[K,B; B^T,0]$
 - `solve_robin_system(mesh, A, alpha, v)` -- Robin BVP for DtN map
 
@@ -128,9 +139,39 @@ IDSM/
 
 ### `src/idsm_partial.py`
 - `run_idsm_partial(mesh, cauchy_data, gamma_d_info, ...)` -- Paper 3 Algorithm 5.1
+- `define_accessible_boundary(mesh, theta_range)` -- Define $\Gamma_D$ from angle range
 - `complete_data(y_data, y_current, mask)` -- Data completion (Eq. 4.1)
 - `apply_hr_dtn(mesh, v, A_op, alpha_d, alpha_n, ...)` -- Heterogeneous DtN (Eq. 4.2)
 - `StabilizedLowRankResolver` -- Stabilization-correction scheme (Eq. 4.10-4.16)
+
+### `src/dsm.py`
+- `compute_dsm_indicator(mesh, cauchy_data, gamma, ...)` -- DSM indicator $\eta(x)$ (Eq. 2.8)
+- `discretize_laplace_beltrami(mesh, gamma)` -- $(-\Delta_\Gamma)^\gamma$ eigendecomposition
+- `LaplaceBeltramiOperator` -- Discrete $(-\Delta_\Gamma)^\gamma$ operator with `apply()` method
+- `compute_scattering_data(cauchy_data)` -- Scattering $y_d^s = y_\emptyset - y_d$
+- `compute_dsm_numerator(mesh, scatter, lb_op)` -- Auxiliary PDE solve (Eq. 2.9)
+- `compute_dsm_denominator_integral(mesh, points)` -- FreeFEM-style normalization (Eq. 2.10)
+
+### `src/forward_solver.py`
+- `solve_forward(mesh, sigma, f_func)` -- EIT forward solve: $\nabla\cdot(\sigma\nabla y)=0$
+- `solve_forward_general(mesh, sigma, potential, f_func)` -- Generalized with zeroth-order term
+- `generate_cauchy_data(mesh, sigma, sources, noise_level)` -- Noisy Cauchy data pairs
+- `generate_cauchy_data_general(mesh, sigma, potential, sources, noise_level)` -- DOT Cauchy data
+- `make_conductivity_example1(mesh)` -- Example 1 (two insulating squares)
+- `make_conductivity_conductive(mesh)` -- Conductive variant ($\sigma=3.0$)
+- `make_conductivity_single(mesh)` -- Single circular inclusion
+- `make_potential_example3(mesh)` -- Example 3 (potential-only, DOT)
+
+### `src/utils.py`
+- `compute_iou(u_true, u_recon, mesh)` -- Area-matched Intersection over Union
+- `distance_to_boundary(mesh, points)` -- Min distance from points to boundary edges
+
+### `src/config.py`
+- `RuntimeConfig` -- GPU/seed/backend settings (from environment variables)
+- `MeshConfig` -- Mesh resolution parameters
+- `FullIDSMConfig` -- Full-data IDSM hyperparameters (Algorithm 3.2)
+- `PartialIDSMConfig` -- Partial-data IDSM hyperparameters (Algorithm 5.1)
+- `Notebook01Config` ... `Notebook04Config` -- Per-notebook configuration dataclasses
 
 ## Notebook Guide
 
@@ -164,8 +205,19 @@ runtime = RuntimeConfig(use_gpu=True)  # Will warn and fall back to CPU
 
 ```bash
 cd IDSM
-pytest tests/ -v
+pytest tests/ -v            # Default: scikit-fem backend (83 tests)
+IDSM_FEM_LEGACY=1 pytest tests/ -v   # Legacy hand-written FEM backend
 ```
+
+## FAQ
+
+**Q: Why scikit-fem instead of FEniCSx?**
+
+A: scikit-fem is a pure Python library (pip-installable, no compiled dependencies) that covers all P1 triangular FEM operations needed by this project. FEniCSx requires PETSc/MPI compilation and has heavier installation requirements, which creates unnecessary barriers for an educational package. Both are mathematically equivalent for the P1 case; our regression tests verify numerical agreement to machine precision.
+
+**Q: Can I switch back to the hand-written FEM?**
+
+A: Yes. Set `IDSM_FEM_LEGACY=1` as an environment variable. The adapter layer in `fem.py` will delegate to `fem_legacy.py` instead of `fem_skfem.py`. All tests pass with both backends.
 
 ## References
 

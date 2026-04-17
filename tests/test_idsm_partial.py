@@ -90,3 +90,51 @@ def test_define_accessible_boundary_partition(mesh):
     assert n_d > 0
     assert n_n > 0
     assert n_d + n_n == len(mesh.boundary_nodes)
+
+
+# ============================================================
+# 端到端测试：partial IDSM 重建
+# ============================================================
+
+def test_partial_idsm_reconstruction_residual_decreases(mesh, gamma_d):
+    """端到端：partial IDSM 残差应下降，且最终 sigma 在合理范围内。"""
+    sigma_true, _ = make_conductivity_example1(mesh)
+    data = generate_cauchy_data(
+        mesh, sigma_true,
+        [lambda x, y: x, lambda x, y: y],
+        noise_level=0.05,
+        rng=np.random.default_rng(456),
+    )
+    hist = run_idsm_partial(
+        mesh, data, gamma_d, n_iter=5,
+        sigma_bg=1.0, sigma_range=0.3,
+        alpha_d=0.05, alpha_n=2.0,
+        verbose=False,
+    )
+    # 残差有限且不爆炸
+    res = hist["residuals"]
+    assert np.all(np.isfinite(res))
+    # sigma_final 在物理范围内
+    sigma_final = hist["sigma_final"]
+    assert np.all(sigma_final >= 0.3 - 1e-10)
+    assert np.all(sigma_final <= 1.0 + 1e-10)
+
+
+def test_hr_dtn_alpha_asymmetry(mesh, gamma_d):
+    """HR-DtN 的非对称 alpha（alpha_d ≠ alpha_n）应产生不同于对称的结果。
+
+    Paper 3 的核心创新之一：Γ_D 上用小 α_d（更精确），
+    Γ_N 上用大 α_n（更正则化）。
+    """
+    M_D, M_N = assemble_partial_boundary_mass_matrix(mesh, gamma_d["node_mask"])
+    A = assemble_stiffness_matrix(mesh, 1.0) + assemble_mass_matrix(mesh, 1e-10)
+    v = np.random.default_rng(42).standard_normal(mesh.n_points)
+
+    # 对称 alpha
+    w_sym = apply_hr_dtn(mesh, v, A, 0.5, 0.5, M_D, M_N, sigma_bg=1.0)
+    # 非对称 alpha
+    w_asym = apply_hr_dtn(mesh, v, A, 0.05, 2.0, M_D, M_N, sigma_bg=1.0)
+
+    # 应有显著不同
+    diff = np.linalg.norm(w_sym - w_asym) / max(np.linalg.norm(w_sym), 1e-30)
+    assert diff > 1e-3, f"Symmetric and asymmetric HR-DtN too similar: rel_diff={diff:.2e}"

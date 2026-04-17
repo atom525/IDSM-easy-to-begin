@@ -1,20 +1,20 @@
 """
-dsm.py - Classical Direct Sampling Method (Standard DSM)
+dsm.py - 经典直接采样方法 (Classical Direct Sampling Method, DSM)
 
-Implements the DSM strictly per Ito, Jin, Wang, Zou (2025) Section 2.2:
-  Index function η(x) = ⟨G(·,x), y_d^s⟩_{H^γ(Γ)} / ‖G(·,x)‖_{H^γ(Γ)}    (Eq. 2.8)
+严格按照 Ito, Jin, Wang, Zou (2025) Section 2.2 实现：
+  指标函数 η(x) = ⟨G(·,x), y_d^s⟩_{H^γ(Γ)} / ‖G(·,x)‖_{H^γ(Γ)}    (Eq. 2.8)
 
-where:
-  - G(·,x) is Green's function (Neumann function)
-  - y_d^s is the scattering data (background solution minus measured data)
-  - H^γ(Γ) is the boundary Sobolev space induced by (−Δ_Γ)^γ
+其中：
+  - G(·,x) 是 Green 函数（Neumann 函数）
+  - y_d^s 是散射数据（背景解减测量数据）
+  - H^γ(Γ) 是由 (−Δ_Γ)^γ 诱导的边界 Sobolev 空间
 
-Numerator computation (Eq. 2.9): via solving an auxiliary Neumann problem
+分子计算 (Eq. 2.9)：求解辅助 Neumann 问题
   −∇·(σ₀∇ζ) = 0 in Ω,  σ₀ ∂ζ/∂n = (−Δ_Γ)^γ y_d^s on Γ
 
-Denominator approximation (Eq. 2.10): d(x,Γ)^γ or integral approximation
+分母近似 (Eq. 2.10)：d(x,Γ)^γ 或积分近似
 
-Reference: FreeFEM Example1.edp L252-264 (diagFunc) and L317-335 (iteration 0).
+参考: FreeFEM Example1.edp L252-264 (diagFunc) 和 L317-335 (迭代 0).
 """
 
 import numpy as np
@@ -32,30 +32,30 @@ from .utils import distance_to_boundary
 
 
 # ============================================================
-# Laplace-Beltrami operator discretization
+# Laplace-Beltrami 算子离散化
 # ============================================================
 
 class LaplaceBeltramiOperator:
-    """Discrete representation of (−Δ_Γ)^γ on the boundary Γ.
+    """边界 Γ 上 (−Δ_Γ)^γ 的离散表示。
 
-    Constructed via 1D finite element eigendecomposition:
+    通过一维有限元特征分解构建：
       K_Γ v_i = λ_i M_Γ v_i
 
-    where K_Γ is the 1D boundary stiffness matrix (arc-length derivative)
-    and M_Γ is the 1D boundary mass matrix.
+    其中 K_Γ 是一维边界刚度矩阵（弧长导数），
+    M_Γ 是一维边界质量矩阵。
 
-    Operator action: (−Δ_Γ)^γ f = Σ_{i: λ_i>0} λ_i^γ (f, v_i)_{M_Γ} v_i
+    算子作用: (−Δ_Γ)^γ f = Σ_{i: λ_i>0} λ_i^γ (f, v_i)_{M_Γ} v_i
 
-    Expansion coefficients: c_i = v_i^T M_Γ f (since V^T M_Γ V = I)
+    展开系数: c_i = v_i^T M_Γ f （因 V^T M_Γ V = I）
 
     Attributes
     ----------
-    eigenvalues : array (K,) — sorted eigenvalues λ_i
-    eigenvectors : array (B, K) — M_Γ-orthonormal eigenvectors
-    gamma : float — fractional power γ
-    n_full : int — total number of domain nodes
-    boundary_nodes : array — boundary node indices
-    M_bdry_local : sparse (B, B) — local boundary mass matrix
+    eigenvalues : array (K,) — 排序后的特征值 λ_i
+    eigenvectors : array (B, K) — M_Γ-正交归一化的特征向量
+    gamma : float — 分数幂 γ
+    n_full : int — 域节点总数
+    boundary_nodes : array — 边界节点索引
+    M_bdry_local : sparse (B, B) — 局部边界质量矩阵
     """
 
     def __init__(self, eigenvalues, eigenvectors, gamma, n_full,
@@ -77,16 +77,7 @@ class LaplaceBeltramiOperator:
                 self._lam_gamma[i] = eigenvalues[i] ** gamma
 
     def apply(self, f_full):
-        """Apply (−Δ_Γ)^γ to a full-domain vector (only boundary part is effective).
-
-        Parameters
-        ----------
-        f_full : array (N,)
-
-        Returns
-        -------
-        result : array (N,) — only boundary nodes are non-zero
-        """
+        """将 (−Δ_Γ)^γ 作用于全域向量（仅边界部分有效）。"""
         f_bdry = f_full[self.boundary_nodes]
         result_bdry = self.apply_to_boundary(f_bdry)
 
@@ -95,17 +86,9 @@ class LaplaceBeltramiOperator:
         return result
 
     def apply_to_boundary(self, f_bdry):
-        """Apply (−Δ_Γ)^γ directly to a boundary vector.
+        """将 (−Δ_Γ)^γ 直接作用于边界向量。
 
-        c_i = (M_Γ v_i)^T f,  result = Σ_i λ_i^γ c_i v_i
-
-        Parameters
-        ----------
-        f_bdry : array (B,)
-
-        Returns
-        -------
-        result_bdry : array (B,)
+        c_i = (M_Γ v_i)^T f,  结果 = Σ_i λ_i^γ c_i v_i
         """
         coeffs = self._MV.T.dot(f_bdry)
         weighted = self._lam_gamma * coeffs
@@ -114,29 +97,19 @@ class LaplaceBeltramiOperator:
 
 
 def discretize_laplace_beltrami(mesh, gamma=0.5, n_eigenvalues=None):
-    """Discretize the Laplace-Beltrami operator (−Δ_Γ)^γ on the boundary Γ.
+    """离散化边界 Γ 上的 Laplace-Beltrami 算子 (−Δ_Γ)^γ。
 
-    Procedure:
-      1. Assemble 1D boundary stiffness: (K_Γ)_{ij} = ∫_Γ (dφ_i/ds)(dφ_j/ds) ds
-      2. Assemble 1D boundary mass: (M_Γ)_{ij} = ∫_Γ φ_i φ_j ds
-      3. Solve generalized eigenproblem: K_Γ v = λ M_Γ v
-      4. Construct (−Δ_Γ)^γ f = Σ_i λ_i^γ (f, v_i)_{M_Γ} v_i
+    步骤：
+      1. 组装一维边界刚度矩阵: (K_Γ)_{ij} = ∫_Γ (dφ_i/ds)(dφ_j/ds) ds
+      2. 组装一维边界质量矩阵: (M_Γ)_{ij} = ∫_Γ φ_i φ_j ds
+      3. 求解广义特征值问题: K_Γ v = λ M_Γ v
+      4. 构建 (−Δ_Γ)^γ f = Σ_i λ_i^γ (f, v_i)_{M_Γ} v_i
 
-    For each boundary edge e=(n0,n1) of length L_e:
-      (K_Γ)_e = (1/L_e) [[1, −1], [−1, 1]]   (1D stiffness)
-      (M_Γ)_e = (L_e/6) [[2, 1], [1, 2]]     (1D mass)
+    对于每条边界边 e=(n0,n1)，长度 L_e：
+      (K_Γ)_e = (1/L_e) [[1, −1], [−1, 1]]   （一维刚度）
+      (M_Γ)_e = (L_e/6) [[2, 1], [1, 2]]     （一维质量）
 
-    Parameters
-    ----------
-    mesh : EllipticMesh
-    gamma : float — fractional power (Paper 1 recommends γ=1/2, matching the DtN map)
-    n_eigenvalues : int or None — number of eigenvalues to compute (default: all)
-
-    Returns
-    -------
-    LaplaceBeltramiOperator
-
-    Reference: Paper 1, Section 2.2 — (−Δ_Γ)^γ defines the H^γ(Γ) inner product.
+    参考: Paper 1, Section 2.2 — (−Δ_Γ)^γ 定义了 H^γ(Γ) 内积。
     """
     bdry_nodes = mesh.boundary_nodes
     n_bdry = len(bdry_nodes)
@@ -201,23 +174,15 @@ def discretize_laplace_beltrami(mesh, gamma=0.5, n_eigenvalues=None):
 
 
 # ============================================================
-# Scattering data
+# 散射数据
 # ============================================================
 
 def compute_scattering_data(cauchy_data):
-    """Compute scattering data y_d^s = y_∅ − y_d.
+    """计算散射数据 y_d^s = y_∅ − y_d。
 
-    Paper 1, Section 2.1 (after Eq. 2.7):
+    Paper 1, Section 2.1 (Eq. 2.7 之后):
       y_d^s = T·y_∅ − y_d
-    For Neumann boundary conditions, T is the identity (trace) operator.
-
-    Parameters
-    ----------
-    cauchy_data : dict from forward_solver.generate_cauchy_data
-
-    Returns
-    -------
-    scatter : list of array (N,)
+    对于 Neumann 边界条件，T 是恒等（trace）算子。
     """
     scatter = []
     for y_empty, y_data in zip(cauchy_data['y_empty'], cauchy_data['y_data']):
@@ -226,28 +191,17 @@ def compute_scattering_data(cauchy_data):
 
 
 # ============================================================
-# DSM numerator: auxiliary PDE solve
+# DSM 分子：辅助 PDE 求解
 # ============================================================
 
 def compute_dsm_numerator(mesh, scatter_full, lb_operator, sigma_bg=1.0):
-    """Compute the DSM numerator: ζ(x) = ⟨G(·,x), y_d^s⟩_{H^γ(Γ)}.
+    """计算 DSM 分子: ζ(x) = ⟨G(·,x), y_d^s⟩_{H^γ(Γ)}。
 
-    Solves the auxiliary Neumann problem (Paper 1, Eq. 2.9):
+    求解辅助 Neumann 问题 (Paper 1, Eq. 2.9):
       −∇·(σ₀∇ζ) = 0 in Ω,  σ₀ ∂ζ/∂n = (−Δ_Γ)^γ y_d^s on Γ
-      Constraint: ∫_Γ ζ ds = 0
+      约束: ∫_Γ ζ ds = 0
 
-    The solution ζ(x) simultaneously gives the numerator at all interior points x.
-
-    Parameters
-    ----------
-    mesh : EllipticMesh
-    scatter_full : array (N,) — scattering data
-    lb_operator : LaplaceBeltramiOperator
-    sigma_bg : float — background conductivity
-
-    Returns
-    -------
-    zeta : array (N,) — auxiliary problem solution = numerator ⟨G(·,x), y_d^s⟩_{H^γ(Γ)}
+    解 ζ(x) 同时给出所有内点 x 处的分子值。
     """
     g_full = lb_operator.apply(scatter_full)
 
@@ -262,24 +216,14 @@ def compute_dsm_numerator(mesh, scatter_full, lb_operator, sigma_bg=1.0):
 
 
 # ============================================================
-# DSM denominator: normalization factor
+# DSM 分母：归一化因子
 # ============================================================
 
 def compute_dsm_denominator_distance(mesh, points, gamma=0.5):
-    """Denominator approximation method 1: distance-based.
+    """分母近似方法 1：基于距离。
 
-    Paper 1, Eq. (2.10) for d=2:
+    Paper 1, Eq. (2.10)（d=2 情形）:
       ‖G(·,x)‖_{H^γ(Γ)} ≈ C / d(x,Γ)^γ
-
-    Parameters
-    ----------
-    mesh : EllipticMesh
-    points : array (K, 2) — sampling points
-    gamma : float
-
-    Returns
-    -------
-    denom : array (K,) — denominator values
     """
     dist = distance_to_boundary(mesh, points)
     dist = np.maximum(dist, 1e-12)
@@ -288,23 +232,14 @@ def compute_dsm_denominator_distance(mesh, points, gamma=0.5):
 
 
 def compute_dsm_denominator_integral(mesh, points):
-    """Denominator approximation method 2: integral-based (FreeFEM style).
+    """分母近似方法 2：基于积分（FreeFEM 风格）。
 
-    Reference: FreeFEM Example1.edp L260-261:
+    参考 FreeFEM Example1.edp L260-261:
       diagFunc(i) = 1 / ((int1d(Th)(1/dis^2.0))^0.5)
 
-    i.e., R(x) = 1 / √(∫_Γ 1/|x−x'|² ds(x'))
+    即 R(x) = 1 / √(∫_Γ 1/|x−x'|² ds(x'))
 
-    This approximates 1/‖∇Φ_x‖_{L²(Γ)} where Φ_x = −1/(2π) ln|x−x'|.
-
-    Parameters
-    ----------
-    mesh : EllipticMesh
-    points : array (K, 2)
-
-    Returns
-    -------
-    denom : array (K,) — denominator values (= 1/‖∇Φ_x‖_{L²(Γ)})
+    这近似 1/‖∇Φ_x‖_{L²(Γ)}，其中 Φ_x = −1/(2π) ln|x−x'| 是基本解。
     """
     bdry_edges = mesh.boundary_edges
     bdry_lengths = mesh.boundary_edge_lengths()
@@ -326,28 +261,28 @@ def compute_dsm_denominator_integral(mesh, points):
 
 
 # ============================================================
-# DSM indicator function — main driver
+# DSM 指标函数 — 主驱动
 # ============================================================
 
 def compute_dsm_indicator(mesh, cauchy_data, gamma=0.5, n_grid=201,
                           denom_method='integral', sigma_bg=1.0,
                           n_eigenvalues=None):
-    """Compute the DSM indicator function η(x) on a uniform grid.
+    """计算均匀网格上的 DSM 指标函数 η(x)。
 
     Paper 1, Eq. (2.8):
       η(x) = ⟨G(·,x), y_d^s⟩_{H^γ(Γ)} / ‖G(·,x)‖_{H^γ(Γ)}
 
-    For L Cauchy data pairs, aggregated using absolute values:
+    对 L 组 Cauchy 数据，取绝对值聚合:
       η(x) = (1/L) Σ_ℓ |ζ_ℓ(x)| / R(x)
 
-    Procedure:
-      1. Discretize (−Δ_Γ)^γ (eigendecomposition)
-      2. Compute scattering data y_d^s
-      3. For each data pair, solve auxiliary PDE → ζ_ℓ(x)
-      4. Aggregate numerators on FEM mesh
-      5. Interpolate to uniform scanning grid
-      6. Compute denominator R(x)
-      7. η(x) = numerator / denominator
+    流程:
+      1. 离散化 (−Δ_Γ)^γ（特征分解）
+      2. 计算散射数据 y_d^s
+      3. 对每组数据求解辅助 PDE → ζ_ℓ(x)
+      4. 在 FEM 网格上聚合分子
+      5. 插值到均匀扫描网格
+      6. 计算分母 R(x)
+      7. η(x) = 分子 / 分母
 
     Parameters
     ----------
@@ -410,11 +345,11 @@ def compute_dsm_indicator(mesh, cauchy_data, gamma=0.5, n_grid=201,
 
 
 # ============================================================
-# P1 interpolation to grid points
+# P1 插值到网格点
 # ============================================================
 
 def _interpolate_p1_to_grid(mesh, values, grid_points):
-    """Interpolate P1 FEM solution to arbitrary grid points via barycentric coordinates."""
+    """通过重心坐标将 P1 FEM 解插值到任意网格点。"""
     K = len(grid_points)
     interpolated = np.zeros(K)
 
@@ -492,13 +427,13 @@ def _interpolate_p1_to_grid(mesh, values, grid_points):
 
 
 # ============================================================
-# Visualization helper
+# 可视化辅助
 # ============================================================
 
 def plot_dsm_indicator(result, title='DSM Indicator $\\eta(x)$',
                        figsize=(8, 6), cmap='hot', save_path=None,
                        inclusion_boxes=None, vmin=None, vmax=None):
-    """Visualize the DSM indicator function."""
+    """可视化 DSM 指标函数。"""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt

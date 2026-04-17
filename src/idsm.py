@@ -42,77 +42,29 @@ from .config import RuntimeConfig
 # ============================================================
 
 def compute_ellipse_normal_derivative(mesh, z, sigma_bg=1.0, a=1.0, b=0.8):
-    """Compute σ₀ ∂z/∂n on the elliptic boundary Γ.
+    """计算 σ₀ ∂z/∂n（向后兼容别名，内部委托给通用实现）。
 
-    For the ellipse x₁²/a² + x₂²/b² = 1, the outward normal is:
-      n̂ = (x₁/a², x₂/b²) / ‖(x₁/a², x₂/b²)‖
+    委托给 fem.compute_boundary_normal_derivative，不再依赖椭圆几何。
+    保留此函数名是为了兼容所有现有调用点。
 
-    Normal derivative:
-      σ₀ ∂z/∂n = σ₀ (∇z · n̂)
+    原始实现使用椭圆解析法向 n̂ = (x₁/a², x₂/b²)/‖·‖，
+    通用版本使用基于边几何的外法向，适用于任意 2D 域。
 
-    Reference: FreeFEM Example1.edp L329-330:
-      yErr = dx(unknown)*x + dy(unknown)*y/0.8/0.8;
-      yErr = yErr/sqrt(x^2 + y^2/0.8^2/0.8^2);
+    Reference: FreeFEM Example1.edp L329-330
 
     Parameters
     ----------
     mesh : EllipticMesh
-    z : array (N,) — P1 FEM solution
-    sigma_bg : float — background conductivity σ₀
-    a, b : float — ellipse semi-axes
+    z : array (N,) — P1 FEM 解
+    sigma_bg : float — 背景电导率 σ₀
+    a, b : float — 椭圆半轴（保留参数签名兼容，不再使用）
 
     Returns
     -------
-    flux : array (N,) — σ₀ ∂z/∂n at boundary nodes, zero at interior nodes
+    flux : array (N,) — σ₀ ∂z/∂n，边界节点有值，内部节点为零
     """
-    edge_to_tri = {}
-    for tri_idx in range(mesh.n_triangles):
-        tri = mesh.triangles[tri_idx]
-        for i in range(3):
-            e = tuple(sorted([int(tri[i]), int(tri[(i + 1) % 3])]))
-            edge_to_tri.setdefault(e, []).append(tri_idx)
-
-    # Boundary nodes: collect ∇z from adjacent boundary triangles
-    node_grad = {}
-    for edge in mesh.boundary_edges:
-        e_key = tuple(sorted([int(edge[0]), int(edge[1])]))
-        tri_list = edge_to_tri.get(e_key, [])
-        if not tri_list:
-            continue
-        tri_idx = tri_list[0]  # one triangle per boundary edge
-        tri = mesh.triangles[tri_idx]
-
-        # ∇z|_T = Σ_i z[tri[i]] * grad_phi[tri_idx, i, :]
-        grad_z = np.zeros(2)
-        for i in range(3):
-            grad_z += z[tri[i]] * mesh.grad_phi[tri_idx, i, :]
-
-        for n_idx in [int(edge[0]), int(edge[1])]:
-            node_grad.setdefault(n_idx, []).append(grad_z)
-
-    flux = np.zeros(mesh.n_points)
-    a2 = a * a
-    b2 = b * b
-
-    for n_idx in mesh.boundary_nodes:
-        n_idx = int(n_idx)
-        if n_idx not in node_grad:
-            continue
-
-        avg_grad = np.mean(node_grad[n_idx], axis=0)
-
-        x1, x2 = mesh.points[n_idx]
-
-        n_unnorm = np.array([x1 / a2, x2 / b2])
-        n_norm = np.sqrt(n_unnorm[0] ** 2 + n_unnorm[1] ** 2)
-
-        if n_norm < 1e-15:
-            continue
-
-        # σ₀ ∂z/∂n = σ₀ (∇z · n̂) = σ₀ (∇z · n_unnorm) / ‖n_unnorm‖
-        flux[n_idx] = sigma_bg * np.dot(avg_grad, n_unnorm) / n_norm
-
-    return flux
+    from .fem import compute_boundary_normal_derivative
+    return compute_boundary_normal_derivative(mesh, z, sigma_bg=sigma_bg)
 
 
 # ============================================================
@@ -123,14 +75,19 @@ def apply_regularized_dtn(mesh, v, A_op, alpha, M_bdry=None,
                           sigma_bg=1.0, a=1.0, b=0.8):
     """Apply the regularized DtN map Λ_α(A) via two Robin BVPs.
 
-    Paper 1, Eq. (3.20):
-      Step 1: −∇·(σ₀∇z) + v₀z = 0 in Ω,  z + α σ₀∂z/∂n = v on Γ
-              weak form: [A_op + (1/α) M_Γ] z = (1/α) M_Γ v
-      Step 2: g = σ₀ ∂z/∂n on Γ (elliptic boundary normal derivative)
-      Step 3: [A_op + (1/α) M_Γ] w = (1/α) M_Γ g
+    数学背景（Eq. 3.5）：
+      经典 DtN 映射 Λ(A): H^{1/2}(Γ) → H^{-1/2}(Γ) 是无界算子，
+      直接计算会放大噪声。正则化版本 Λ_α(A) 由 Robin 问题定义：
+        Λ_α(A) v = σ₀ ∂z_α/∂n，其中 Az_α = 0 in Ω, z_α + α σ₀∂z_α/∂n = v on Γ
+      当 α → 0 时 Λ_α → Λ（经典 DtN）；α 越大正则化越强，噪声敏感度越低。
 
-    By Lemma 3.2, this double Robin solve computes the core part of
-      G[u]* Λ_α(A)* Λ_α(A).
+    离散实现（Eq. 3.20）：
+      Step 1: weak form [A_op + (1/α) M_Γ] z = (1/α) M_Γ v  （第一次 Robin 求解）
+      Step 2: g = σ₀ ∂z/∂n on Γ                              （边界法向导数）
+      Step 3: [A_op + (1/α) M_Γ] w = (1/α) M_Γ g             （第二次 Robin 求解）
+
+    由 Lemma 3.2，双 Robin 求解计算
+      G[u]* Λ_α(A)* Λ_α(A) 的核心部分。
 
     Parameters
     ----------
@@ -357,21 +314,24 @@ class LowRankPreconditioner:
 # R₀ initialization
 # ============================================================
 
-def initialize_r0_diagonal(mesh):
-    """Initialize the R₀ diagonal preconditioner.
+def initialize_r0_diagonal(mesh, cond_exponent=0.5, pot_exponent=0.0):
+    """初始化 R₀ 对角预条件子。
 
-    Paper 1, Section 4.1: discrete R₀ follows the construction motivated by
-    ‖∇Φ_x‖_{L²(Γ)}.
+    Paper 1, Section 4.1：离散 R₀ 基于 ‖∇Φ_x‖_{L²(Γ)} 的构造。
 
     FreeFEM L252–264 (diagFunc):
-      conductivity: diagFunc(i) = 1/((∫_Γ 1/dis^2.0)^0.5)
-      potential:    diagFunc(i+M) = 1/((∫_Γ 1/dis^2.0)^0.0) = 1
+      conductivity: diagFunc(i) = 1/((∫_Γ 1/dis^2.0)^cond_exponent)
+      potential:    diagFunc(i+M) = 1/((∫_Γ 1/dis^2.0)^pot_exponent)
 
-    where dis = |x_i − x'|, x_i is the centroid of triangle i, and x' runs over Γ.
+    其中 dis = |x_i − x'|，x_i 是三角形 i 的质心，x' 在 Γ 上运行。
 
     Parameters
     ----------
     mesh : EllipticMesh
+    cond_exponent : float
+        电导率块的指数，默认 0.5（FreeFEM L260–261）。
+    pot_exponent : float
+        势块的指数，默认 0.0（即恒等，FreeFEM L262–263）。
 
     Returns
     -------
@@ -391,14 +351,14 @@ def initialize_r0_diagonal(mesh):
     r0_sq = np.sum(diff0 ** 2, axis=2) + 1e-20
     r1_sq = np.sum(diff1 ** 2, axis=2) + 1e-20
 
-    # Trapezoidal rule on ∂Ω: Σ_e (L_e/2) (1/r0² + 1/r1²)
+    # 梯形法则在 ∂Ω 上：Σ_e (L_e/2) (1/r0² + 1/r1²)
     integrand = bdry_lengths[None, :] * 0.5 * (1.0 / r0_sq + 1.0 / r1_sq)
     integral = np.sum(integrand, axis=1)
 
-    # Conductivity block: 1/sqrt(∫_Γ 1/dis²) — FreeFEM L260–261
-    diag_cond = 1.0 / np.sqrt(integral + 1e-30)
-    # Potential block: exponent 0 → unity — FreeFEM L262–263
-    diag_pot = np.ones(M)
+    # 电导率块：1/(∫_Γ 1/dis²)^cond_exponent
+    diag_cond = 1.0 / np.power(integral + 1e-30, cond_exponent)
+    # 势块：1/(∫_Γ 1/dis²)^pot_exponent
+    diag_pot = 1.0 / np.power(integral + 1e-30, pot_exponent)
 
     return np.concatenate([diag_cond, diag_pot])
 
@@ -408,9 +368,10 @@ def initialize_r0_diagonal(mesh):
 # ============================================================
 
 def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
-             sigma_range=0.3, potential_range=2e-10,
+             sigma_range=0.01, potential_range=2e-10,
              alpha=1.0, n_iter=22, lowrank_method='BFG',
              problem_type='conductivity', coeff_known=False,
+             cond_exponent=0.5, pot_exponent=0.0,
              verbose=True, runtime_config=None):
     """Run the IDSM iterative scheme (Algorithm 3.2).
 
@@ -430,6 +391,8 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
     lowrank_method : str — 'DFP' or 'BFG'
     problem_type : str — 'conductivity', 'potential', or 'double'
     coeff_known : bool — True for known-coefficient mapping
+    cond_exponent : float — R₀ 对角中 conductivity 块的指数（FreeFEM Example1: 0.5）
+    pot_exponent : float — R₀ 对角中 potential 块的指数（FreeFEM Example3: 1.5, Example1: 0.0）
     verbose : bool
     runtime_config : RuntimeConfig or None
 
@@ -476,7 +439,8 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
                                      sigma_bg)
         w_fixed.append(w_k)
 
-    diag = initialize_r0_diagonal(mesh)
+    diag = initialize_r0_diagonal(mesh, cond_exponent=cond_exponent,
+                                   pot_exponent=pot_exponent)
     R = LowRankPreconditioner(diag, method=lowrank_method, max_store=n_iter)
 
     sigma_guess = np.full(M_tri, sigma_bg)

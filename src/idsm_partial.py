@@ -28,7 +28,23 @@ from .config import RuntimeConfig
 
 
 def define_accessible_boundary(mesh, theta_range, a=1.0, b=0.8):
-    """Define accessible boundary Gamma_D from ellipse angle range."""
+    """定义椭圆边界上的可观测部分 Γ_D。
+
+    给定椭圆参数角范围 [θ_start, θ_end]，标记边界节点中落在
+    该角度范围内的节点为可观测节点。支持跨越 ±π 的角度范围。
+
+    Paper 3 Section 2: Γ = Γ_D ∪ Γ_N，Γ_D 为 Cauchy 数据可用的部分。
+
+    Parameters
+    ----------
+    mesh : EllipticMesh
+    theta_range : tuple (θ_start, θ_end) — 椭圆参数角范围（弧度）
+    a, b : float — 椭圆半轴（默认 a=1.0, b=0.8）
+
+    Returns
+    -------
+    dict: 'node_mask' (全域 bool), 'bdry_mask' (边界 bool)
+    """
     theta_start, theta_end = theta_range
     node_mask = np.zeros(mesh.n_points, dtype=bool)
     for idx in mesh.boundary_nodes:
@@ -88,36 +104,51 @@ def _duality(zeta, eta, areas):
 
 
 def compute_heterogeneous_D(mesh, gamma_d_node_mask, alpha_d, alpha_n, gamma=4.0, epsilon=0.02):
-    """Compute Eq. (4.5)-style diagonal D on triangle centroids."""
+    """Compute heterogeneous R₀ diagonal，与全数据 initialize_r0_diagonal 结构一致。
+
+    Paper 3 Eq. (4.5) 定义了 heterogeneous Sobolev 范数 ‖Φ_z‖_{H¹_{α_D}(Γ)}。
+    其离散实现复用全数据 FreeFEM 的 diagFunc 公式（∫_Γ 1/r² ds'），
+    但按 α/(1+α) 在 Γ_D/Γ_N 上分区加权。
+
+    公式：D(z) = 1 / (Σ_e w_e · L_e/2 · (1/r0² + 1/r1²))^exponent
+    其中 w_e = 1/(1+α_e)，α_e = α_d（Γ_D 边）或 α_n（Γ_N 边）。
+    exponent = 0.5（匹配 FreeFEM Example1.edp L260-261）。
+
+    权重的作用：Γ_D 上 w=1/(1+α_d)≈0.95（高权重，可信数据），
+    Γ_N 上 w=1/(1+α_n)≈0.33（低权重，补全数据不可靠）。
+    这使得远离 Γ_D 的采样点 D 值更小，抑制不可靠区域的重建。
+    """
     centroids = mesh.centroids
-    p0 = mesh.points[mesh.boundary_edges[:, 0]]
-    p1 = mesh.points[mesh.boundary_edges[:, 1]]
+    bdry_edges = mesh.boundary_edges
+    p0 = mesh.points[bdry_edges[:, 0]]
+    p1 = mesh.points[bdry_edges[:, 1]]
     lengths = mesh.boundary_edge_lengths()
 
-    n0 = mesh.boundary_edges[:, 0]
-    n1 = mesh.boundary_edges[:, 1]
+    # 按边分类 Γ_D / Γ_N
+    n0 = bdry_edges[:, 0]
+    n1 = bdry_edges[:, 1]
     edge_on_d = gamma_d_node_mask[n0] & gamma_d_node_mask[n1]
     alpha_edge = np.where(edge_on_d, alpha_d, alpha_n)
 
+    # 加权因子：1/(1+α)，在 Γ_D 上大，在 Γ_N 上小
+    weight = 1.0 / (1.0 + alpha_edge)
+
+    # 距离计算
     diff0 = centroids[:, None, :] - p0[None, :, :]
     diff1 = centroids[:, None, :] - p1[None, :, :]
-    r0 = np.sqrt(np.sum(diff0**2, axis=2)) + 1e-20
-    r1 = np.sqrt(np.sum(diff1**2, axis=2)) + 1e-20
+    r0_sq = np.sum(diff0**2, axis=2) + 1e-20
+    r1_sq = np.sum(diff1**2, axis=2) + 1e-20
 
-    phi0 = np.abs(-(1.0 / (2.0 * np.pi)) * np.log(r0))
-    phi1 = np.abs(-(1.0 / (2.0 * np.pi)) * np.log(r1))
-    grad0 = 1.0 / (2.0 * np.pi * r0)
-    grad1 = 1.0 / (2.0 * np.pi * r1)
+    # 加权积分：Σ_e w_e · L_e/2 · (1/r0² + 1/r1²)
+    # 与 idsm.py initialize_r0_diagonal 相同结构，多了 w_e 权重
+    integrand = weight[None, :] * lengths[None, :] * 0.5 * (1.0 / r0_sq + 1.0 / r1_sq)
+    integral = np.sum(integrand, axis=1)
 
-    a_ratio = alpha_edge[None, :] / (1.0 + alpha_edge[None, :])
-    g_ratio = 1.0 / (1.0 + alpha_edge[None, :])
-    comb0 = a_ratio * phi0 + g_ratio * grad0
-    comb1 = a_ratio * phi1 + g_ratio * grad1
+    # exponent=0.5 匹配 FreeFEM Example1.edp L260-261
+    exponent = 0.5
+    D = 1.0 / np.power(integral + 1e-30, exponent)
 
-    l2_sq = np.sum(lengths[None, :] * 0.5 * (comb0**2 + comb1**2), axis=1)
-    norm_l2 = np.sqrt(l2_sq + 1e-30)
-    D = norm_l2 ** (-gamma)
-
+    # 靠近边界的截断（ε_Ω 截断）
     d2b = distance_to_boundary(mesh, centroids)
     D[d2b < epsilon] = 0.0
     return D
@@ -225,19 +256,26 @@ class StabilizedLowRankResolver:
         return self._apply_with_store(vec, self.s_store, self.y_store, self.ry_store)
 
     def stabilize(self, lambda_prev):
-        """Approximate Eq. (4.10): damp and smooth stored low-rank terms."""
+        """Eq. (4.10): R̃_{k+1} = S ∘ (1+λ)^{-1} R_k (1+λ)^{-1}
+
+        对所有存储的低秩向量施加阻尼 (1+λ)^{-1} 和平滑算子 S。
+        """
         damp = 1.0 / (1.0 + max(lambda_prev, 0.0))
         m = self.fine_mesh.n_triangles
         for j in range(len(self.s_store)):
             s = self.s_store[j]
             ry = self.ry_store[j]
+            y = self.y_store[j]
+            # 对 s, ry, y 分块施加 S 算子（粗网格投影 + 恢复）
             s_c = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, s[:m])
             s_v = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, s[m:])
             ry_c = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, ry[:m])
             ry_v = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, ry[m:])
+            y_c = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, y[:m])
+            y_v = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, y[m:])
             self.s_store[j] = damp * np.concatenate([s_c, s_v])
             self.ry_store[j] = damp * np.concatenate([ry_c, ry_v])
-            self.y_store[j] = damp * self.y_store[j]
+            self.y_store[j] = damp * np.concatenate([y_c, y_v])
 
     def update_correction(self, s_vec, y_vec, ry_vec):
         idx = len(self.s_store) % self.max_store
@@ -448,12 +486,28 @@ def run_idsm_partial(
         history["lambda_history"].append(float(lambda_next))
 
         ry_hat = resolver.apply_stabilized(zeta_hat)
-        resolver.update_correction(eta_hat, zeta_hat, ry_hat)
 
-        l1_u = np.sum(np.abs(u_norm) * areas2)
-        l1_ru = np.sum(np.abs(ry_hat) * areas2)
-        if l1_ru > 1e-30:
-            resolver.scale_D(l1_u / l1_ru)
+        # 首次迭代分块缩放 D（匹配 idsm.py:570-594 和 FreeFEM L431-448）
+        # 注意：必须先缩放 D 再存储低秩校正，否则 ry_hat 量级错误
+        if n == 0:
+            scale_c = 0.0
+            scale_v = 0.0
+            if problem_type in ('conductivity', 'double'):
+                l1_c = np.sum(mesh.areas * np.abs(u_norm[:M_tri]))
+                l1_rc = np.sum(mesh.areas * np.abs(ry_hat[:M_tri]))
+                if l1_rc > 1e-30:
+                    scale_c = l1_c / l1_rc
+            if problem_type in ('potential', 'double'):
+                l1_v = np.sum(mesh.areas * np.abs(u_norm[M_tri:]))
+                l1_rv = np.sum(mesh.areas * np.abs(ry_hat[M_tri:]))
+                if l1_rv > 1e-30:
+                    scale_v = l1_v / l1_rv
+            resolver.base_diag[:M_tri] *= scale_c
+            resolver.base_diag[M_tri:] *= scale_v
+            # 用缩放后的 R 重算 ry_hat
+            ry_hat = resolver.apply_stabilized(zeta_hat)
+
+        resolver.update_correction(eta_hat, zeta_hat, ry_hat)
 
         lambda_prev = float(lambda_next)
 

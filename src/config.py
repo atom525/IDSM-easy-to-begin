@@ -67,20 +67,22 @@ class MeshConfig:
 class FullIDSMConfig:
     sigma_bg: float = 1.0
     potential_bg: float = 1e-10
-    sigma_range: float = 0.01
-    potential_range: float = 2e-10
+    sigma_range: float = 0.01      # 搜索下界（FreeFEM: cB=0.01），非夹杂真值（0.3）
+    potential_range: float = 2e-10  # FreeFEM: vB=2e-10
     alpha: float = 1.0
     n_iter: int = 22
     lowrank_method: str = "BFG"
     problem_type: str = "conductivity"
     coeff_known: bool = False
+    cond_exponent: float = 0.5     # R₀ 电导率块指数（FreeFEM L260-261）
+    pot_exponent: float = 0.0      # R₀ 势块指数（FreeFEM L262-263）
 
 
 @dataclass
 class PartialIDSMConfig:
     sigma_bg: float = 1.0
     potential_bg: float = 1e-10
-    sigma_range: float = 0.01
+    sigma_range: float = 0.01      # 与 FullIDSMConfig 一致（FreeFEM: cB=0.01）
     potential_range: float = 2e-10
     alpha_d: float = 0.05
     alpha_n: float = 2.0
