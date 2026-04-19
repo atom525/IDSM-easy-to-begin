@@ -335,7 +335,7 @@ The original papers (Paper 1: arXiv:2503.00423; Paper 3: arXiv:2511.08171) prese
 | BFG and DFP work equally well | "the two correction schemes work equally well" (Paper 1, §4.1) | Both converge with comparable IoU | ✓ |
 | Double-type separates $\sigma$ and $v$ | "can more clearly distinguish the two types of inclusions by the 6th iteration" (Paper 1, §4.2) | $\sigma$ IoU=0.509, $v$ IoU=0.630; both correctly localized | ✓ |
 | Over-regularization at large $\alpha$ | "over-regularized scenario" (Paper 1, §4.3) | $\alpha=1$: $\sigma_{\min}=0.63 \gg 0.3$ (true); $\alpha=0.1$: $\sigma_{\min}=0.24$ | ✓ |
-| Under-regularization at small $\alpha$ | "under-regularized... slightly affected by noise" (Paper 1, §4.3) | $\alpha=0.01$: residual explodes to $O(10^1)$, IoU drops to 0.14 | ✓ |
+| Under-regularization at small $\alpha$ | "under-regularized... slightly affected by noise" (Paper 1, §4.3, DOT with α=1e-3) | EIT with $\alpha=0.01$: residual explodes to $O(10^1)$, IoU drops to 0.14 (EIT less tolerant than DOT) | ✓ |
 | Partial data: inclusions near $\Gamma_D$ better | "reconstruction quality improves with length of $\Gamma_D$" (Paper 3, §6.2) | Right-half IoU=0.267 > full 3/4 IoU=0.255 (inclusion closer) | ✓ |
 | Data completion effective | "partial data estimate remarkably comparable to full-data" (Paper 3, §6.1) | Partial IoU 0.255–0.287 vs full 0.329 (same order) | ✓ |
 | HR-DtN superior to homogeneous | "superior accuracy of HR-DtN over homogeneous" (Paper 3, §6.1) | HR-DtN residual 1.27e-2 < Homo 1.38e-2 (lower residual, though IoU slightly lower) | ✓ |
