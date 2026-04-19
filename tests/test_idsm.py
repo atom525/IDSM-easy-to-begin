@@ -81,14 +81,14 @@ def test_idsm_dfp_vs_bfg_both_work(mesh, cauchy_data):
 
 
 # ============================================================
-# 端到端测试：验证 IDSM 重建质量（IoU）
+# End-to-end test: IDSM reconstruction quality (IoU)
 # ============================================================
 
 def test_idsm_reconstruction_iou(mesh):
-    """端到端：IDSM 多次迭代后 IoU 应显著高于随机猜测。
+    """End-to-end: IoU should be well above random after several IDSM iterations.
 
-    使用 2 个 Cauchy 数据，8 次迭代（粗网格下足够收敛），
-    IoU > 0.1 即说明算法正确定位了夹杂。
+    Uses 2 Cauchy data, 8 iterations (sufficient for coarse mesh).
+    IoU > 0.1 indicates the algorithm correctly locates inclusions.
     """
     sigma_true, u_true = make_conductivity_example1(mesh)
     data = generate_cauchy_data(
@@ -104,34 +104,34 @@ def test_idsm_reconstruction_iou(mesh):
     # u_pred = sigma_final - sigma_bg
     u_pred = hist["sigma_final"] - 1.0
     iou = compute_iou(u_true, u_pred, mesh)
-    # 粗网格（80 boundary）下 IoU 通常在 0.15-0.40，远高于随机（~0.01）
+    # Coarse mesh (80 boundary) typically gives IoU 0.15-0.40, far above random (~0.01)
     assert iou > 0.05, f"IoU={iou:.4f} too low, reconstruction failed"
-    # 残差应有实质下降
+    # Residual should decrease substantially
     res = hist["residuals"]
     assert res[-1] < 0.8 * res[0], "Residual did not decrease enough"
 
 
 # ============================================================
-# DtN map 单元测试
+# DtN map unit tests
 # ============================================================
 
 def test_regularized_dtn_output_finite(mesh):
-    """apply_regularized_dtn 返回有限值。"""
+    """apply_regularized_dtn should return finite values."""
     K_bg = assemble_stiffness_matrix(mesh, 1.0)
     M_pot = assemble_mass_matrix(mesh, 1e-10)
     A_op = K_bg + M_pot
     M_bdry = assemble_boundary_mass_matrix(mesh)
-    # 用边界上的线性函数作为输入
-    v = mesh.points[:, 0]  # x 坐标
+    # Use a linear function on the boundary as input
+    v = mesh.points[:, 0]  # x coordinate
     w = apply_regularized_dtn(mesh, v, A_op, alpha=1.0, M_bdry=M_bdry, sigma_bg=1.0)
     assert np.all(np.isfinite(w))
     assert w.shape == (mesh.n_points,)
 
 
 def test_regularized_dtn_alpha_dependence(mesh):
-    """α 越大，DtN map 输出越平滑（范数更小）。
+    """Larger alpha should produce smoother (smaller norm) output.
 
-    Eq. 3.5 的正则化性质：大 α 意味着更强的正则化。
+    Regularization property of Eq. 3.5: larger alpha = stronger regularization.
     """
     K_bg = assemble_stiffness_matrix(mesh, 1.0)
     M_pot = assemble_mass_matrix(mesh, 1e-10)
@@ -142,7 +142,7 @@ def test_regularized_dtn_alpha_dependence(mesh):
     w_small = apply_regularized_dtn(mesh, v, A_op, alpha=0.1, M_bdry=M_bdry)
     w_large = apply_regularized_dtn(mesh, v, A_op, alpha=10.0, M_bdry=M_bdry)
 
-    # 大 α 的输出 L2 范数应更小（更平滑/更正则化）
+    # Larger alpha should give smaller L2 norm
     norm_small = np.linalg.norm(w_small)
     norm_large = np.linalg.norm(w_large)
     assert norm_large < norm_small, (
@@ -152,7 +152,7 @@ def test_regularized_dtn_alpha_dependence(mesh):
 
 
 def test_regularized_dtn_zero_input_gives_zero(mesh):
-    """零输入应产生零输出（线性算子）。"""
+    """Zero input should produce zero output (linear operator)."""
     K_bg = assemble_stiffness_matrix(mesh, 1.0)
     M_pot = assemble_mass_matrix(mesh, 1e-10)
     A_op = K_bg + M_pot
@@ -162,14 +162,14 @@ def test_regularized_dtn_zero_input_gives_zero(mesh):
 
 
 # ============================================================
-# Example 2 (double 型) 测试
+# Example 2 (double type) tests
 # ============================================================
 
 def test_idsm_double_type_residual_decreases(mesh):
-    """Double 型 IDSM 应能运行且残差下降。
+    """Double-type IDSM should run and reduce residual.
 
-    使用 FreeFEM Example2.edp 参数：
-      σ₀=1.0, v₀=1.0, α=0.1, DFP, R₀=100.0（常数）。
+    Uses FreeFEM Example2.edp parameters:
+      sigma_0=1.0, v_0=1.0, alpha=0.1, DFP, R_0=100.0 (constant).
     """
     sigma_true, potential_true, u_sigma, u_potential = make_double_example2(mesh)
 
@@ -190,26 +190,26 @@ def test_idsm_double_type_residual_decreases(mesh):
         verbose=False,
     )
 
-    # 基本约束检查
+    # Box constraint checks
     sf = hist['sigma_final']
     vf = hist['potential_final']
-    assert np.all(sf >= 0.01 - 1e-10), f"σ 下界违反: min={sf.min()}"
-    assert np.all(sf <= 1.0 + 1e-10), f"σ 上界违反: max={sf.max()}"
-    assert np.all(vf >= 1.0 - 1e-10), f"v 下界违反: min={vf.min()}"
-    assert np.all(vf <= 10.0 + 1e-10), f"v 上界违反: max={vf.max()}"
+    assert np.all(sf >= 0.01 - 1e-10), f"sigma lower bound violated: min={sf.min()}"
+    assert np.all(sf <= 1.0 + 1e-10), f"sigma upper bound violated: max={sf.max()}"
+    assert np.all(vf >= 1.0 - 1e-10), f"v lower bound violated: min={vf.min()}"
+    assert np.all(vf <= 10.0 + 1e-10), f"v upper bound violated: max={vf.max()}"
 
-    # 残差有限且下降
+    # Residuals finite and decreasing
     res = hist['residuals']
-    assert np.all(np.isfinite(res)), "残差包含非有限值"
-    assert res[-1] < res[0], f"残差未下降: {res[0]:.4e} → {res[-1]:.4e}"
+    assert np.all(np.isfinite(res)), "Residuals contain non-finite values"
+    assert res[-1] < res[0], f"Residual did not decrease: {res[0]:.4e} -> {res[-1]:.4e}"
 
-    # 历史长度正确
+    # History length
     assert len(hist['sigma_guess']) == 5
     assert len(hist['potential_guess']) == 5
 
 
 def test_idsm_double_type_both_fields_nontrivial(mesh):
-    """Double 型重建应同时更新 σ 和 v（均非恒等于背景值）。"""
+    """Double-type reconstruction should update both sigma and v (not stuck at background)."""
     sigma_true, potential_true, _, _ = make_double_example2(mesh)
 
     cauchy = generate_cauchy_data_general(
@@ -231,10 +231,10 @@ def test_idsm_double_type_both_fields_nontrivial(mesh):
     sf = hist['sigma_final']
     vf = hist['potential_final']
 
-    # σ 应有偏离背景的区域（夹杂体处 σ < 1.0）
+    # sigma should deviate from background at inclusion locations
     sigma_deviation = np.max(np.abs(sf - 1.0))
-    assert sigma_deviation > 0.01, f"σ 未偏离背景: max deviation={sigma_deviation:.6f}"
+    assert sigma_deviation > 0.01, f"sigma stuck at background: max deviation={sigma_deviation:.6f}"
 
-    # v 应有偏离背景的区域（夹杂体处 v > 1.0）
+    # v should deviate from background at inclusion locations
     potential_deviation = np.max(np.abs(vf - 1.0))
-    assert potential_deviation > 0.01, f"v 未偏离背景: max deviation={potential_deviation:.6f}"
+    assert potential_deviation > 0.01, f"v stuck at background: max deviation={potential_deviation:.6f}"

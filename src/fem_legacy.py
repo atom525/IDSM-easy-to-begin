@@ -412,24 +412,24 @@ def assemble_partial_boundary_mass_matrix(mesh, gamma_d_node_mask):
 
 
 # ============================================================
-# 通用边界法向导数（不依赖特定几何形状）
+# General boundary normal derivative (geometry-independent)
 # ============================================================
 
 def compute_boundary_normal_derivative(mesh, z, sigma_bg=1.0):
-    """计算 σ₀ ∂z/∂n（通用版本，适用于任意 2D 域）。
+    """Compute sigma_0 dz/dn (general version, works for any 2D domain).
 
-    对每个边界边，从相邻三角形获取 P1 梯度 ∇z，
-    用边的几何外法向 n̂ 计算 σ₀ (∇z · n̂)。
+    For each boundary edge, gets P1 gradient grad(z) from the adjacent triangle,
+    computes sigma_0 (grad(z) . n_hat) using the geometric outward normal.
 
     Parameters
     ----------
     mesh : EllipticMesh
-    z : array (N,) — P1 FEM 解
-    sigma_bg : float — 背景电导率 σ₀
+    z : array (N,) -- P1 FEM solution
+    sigma_bg : float -- background conductivity sigma_0
 
     Returns
     -------
-    flux : array (N,) — σ₀ ∂z/∂n，边界节点有值，内部节点为零
+    flux : array (N,) -- sigma_0 dz/dn, nonzero at boundary nodes, zero at interior nodes
     """
     edge_to_tri = {}
     for tri_idx in range(mesh.n_triangles):

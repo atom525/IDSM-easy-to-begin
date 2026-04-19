@@ -1,4 +1,4 @@
-"""测试 utils.py — 工具函数测试。"""
+"""Tests for utils.py -- utility functions."""
 
 import numpy as np
 import pytest
@@ -18,27 +18,27 @@ def mesh():
 
 
 def test_distance_to_boundary_at_boundary_is_zero(mesh):
-    """边界点到边界的距离应为 0。"""
+    """Distance to boundary should be zero at boundary points."""
     bdry_pts = mesh.points[mesh.boundary_nodes]
     dist = distance_to_boundary(mesh, bdry_pts)
     assert np.all(dist < 1e-12)
 
 
 def test_distance_to_boundary_at_center_is_positive(mesh):
-    """域中心点到边界的距离应为正值。"""
+    """Distance from domain center to boundary should be positive."""
     center = np.array([[0.0, 0.0]])
     dist = distance_to_boundary(mesh, center)
-    assert dist[0] > 0.5  # 椭圆短轴 b=0.8，中心到边界至少 0.8
+    assert dist[0] > 0.5  # ellipse semi-minor axis b=0.8, center to boundary >= 0.8
 
 
 def test_distance_to_boundary_positive_everywhere_interior(mesh):
-    """所有内部质心到边界的距离应为正值。"""
+    """Distance from all interior centroids to boundary should be positive."""
     dist = distance_to_boundary(mesh, mesh.centroids)
     assert np.all(dist > 0)
 
 
 def test_iou_identical_inclusions(mesh):
-    """相同输入 → IoU = 1.0。"""
+    """Identical inputs -> IoU = 1.0."""
     u = np.zeros(mesh.n_triangles)
     u[:10] = 1.0
     iou = compute_iou(u, u, mesh)
@@ -46,18 +46,18 @@ def test_iou_identical_inclusions(mesh):
 
 
 def test_iou_no_overlap(mesh):
-    """不相交的区域 → IoU = 0.0。"""
+    """Disjoint regions -> IoU = 0.0."""
     u_true = np.zeros(mesh.n_triangles)
     u_pred = np.zeros(mesh.n_triangles)
     u_true[:10] = 1.0
     u_pred[10:20] = 1.0
     iou = compute_iou(u_true, u_pred, mesh)
-    # 面积匹配阈值后可能有微小重叠，但应接近 0
+    # After area-matching threshold, may have tiny overlap, but should be near 0
     assert iou < 0.5
 
 
 def test_iou_range(mesh):
-    """IoU 应在 [0, 1] 范围内。"""
+    """IoU should be in [0, 1] range."""
     rng = np.random.default_rng(42)
     u_true = np.zeros(mesh.n_triangles)
     u_true[:50] = 1.0
@@ -67,7 +67,7 @@ def test_iou_range(mesh):
 
 
 def test_iou_empty_true_returns_zero(mesh):
-    """真值全零时 IoU 应返回 0。"""
+    """IoU should return 0 when ground truth is all zeros."""
     u_true = np.zeros(mesh.n_triangles)
     u_pred = np.ones(mesh.n_triangles)
     iou = compute_iou(u_true, u_pred, mesh)
@@ -75,15 +75,15 @@ def test_iou_empty_true_returns_zero(mesh):
 
 
 def test_p0_to_grid_constant_field(mesh):
-    """常数 P0 场投影到网格应保持不变。"""
+    """Constant P0 field projected to grid should remain constant."""
     vals = np.full(mesh.n_triangles, 3.14)
-    grid_pts = mesh.centroids  # 用质心作为查询点
+    grid_pts = mesh.centroids  # use centroids as query points
     result = p0_to_grid(mesh, vals, grid_pts)
     assert np.allclose(result, 3.14)
 
 
 def test_p0_to_grid_shape(mesh):
-    """输出形状应与网格点数一致。"""
+    """Output shape should match number of grid points."""
     vals = np.ones(mesh.n_triangles)
     grid_pts = np.array([[0.0, 0.0], [0.3, 0.1], [-0.3, -0.1]])
     result = p0_to_grid(mesh, vals, grid_pts)
@@ -91,21 +91,21 @@ def test_p0_to_grid_shape(mesh):
 
 
 def test_p0_to_grid_wrong_length_raises(mesh):
-    """P0 值长度不匹配应抛出异常。"""
+    """P0 values with wrong length should raise ValueError."""
     with pytest.raises(ValueError):
         p0_to_grid(mesh, np.ones(5), mesh.centroids)
 
 
 def test_fundamental_solution_singularity():
-    """基本解在 x → x' 时应趋于正无穷。"""
+    """Fundamental solution should approach +infinity as x -> x'."""
     x = np.array([[0.0, 0.0]])
     x_prime = np.array([[1e-10, 0.0]])
     phi = fundamental_solution_2d(x, x_prime)
-    assert phi > 1.0  # -1/(2π) ln(1e-10) ≈ 3.66
+    assert phi > 1.0  # -1/(2pi) ln(1e-10) ≈ 3.66
 
 
 def test_fundamental_solution_symmetry():
-    """基本解应满足 Φ(x, y) = Φ(y, x)。"""
+    """Fundamental solution should satisfy Phi(x, y) = Phi(y, x)."""
     x = np.array([0.3, 0.1])
     y = np.array([[0.5, -0.2]])
     phi_xy = fundamental_solution_2d(x.reshape(1, 2), y)

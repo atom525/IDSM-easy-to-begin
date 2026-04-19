@@ -1,10 +1,10 @@
 """
-fem_skfem.py — 基于 scikit-fem (skfem) 的 P1 有限元核心组件
+fem_skfem.py — P1 finite element core components based on scikit-fem (skfem)
 
-使用 skfem 库实现所有 FEM 装配和求解，替代原手写版本。
-对外保持与 fem_legacy.py 完全相同的函数签名和返回类型。
+Uses skfem library for all FEM assembly and solving, replacing the manual implementation.
+Maintains identical function signatures and return types as fem_legacy.py.
 
-依赖：scikit-fem >= 9.0
+Dependency: scikit-fem >= 9.0
 """
 
 import numpy as np
@@ -26,15 +26,15 @@ from skfem.helpers import dot, grad
 
 
 # ============================================================
-# 内部工具：从 EllipticMesh 构建 skfem 对象
+# Internal tools: build skfem objects from EllipticMesh
 # ============================================================
 
 def _build_skfem_mesh(mesh):
-    """从 EllipticMesh 构建 skfem.MeshTri。
+    """Build skfem.MeshTri from EllipticMesh.
 
-    skfem 约定：
-      - points: shape (2, N)，即坐标矩阵的转置
-      - triangles: shape (3, M)，即连接矩阵的转置，dtype=int32
+    skfem conventions:
+      - points: shape (2, N), i.e., transpose of coordinate matrix
+      - triangles: shape (3, M), i.e., transpose of connectivity matrix, dtype=int32
     """
     p = np.ascontiguousarray(mesh.points.T, dtype=np.float64)  # (2, N)
     t = np.ascontiguousarray(mesh.triangles.T, dtype=np.int32)  # (3, M)
@@ -42,19 +42,19 @@ def _build_skfem_mesh(mesh):
 
 
 def _build_basis(mesh):
-    """构建 P1 内部基函数对象。"""
+    """Build P1 interior basis function object."""
     skfem_mesh = _build_skfem_mesh(mesh)
     return Basis(skfem_mesh, ElementTriP1())
 
 
 def _build_facet_basis(mesh, facets=None):
-    """构建边界 facet 基函数对象。
+    """Build boundary facet basis function object.
 
     Parameters
     ----------
     mesh : EllipticMesh
     facets : array or None
-        指定的边界 facet 索引。None 表示全部边界 facets。
+        Specified boundary facet indices. None means all boundary facets.
     """
     skfem_mesh = _build_skfem_mesh(mesh)
     if facets is not None:
@@ -63,19 +63,19 @@ def _build_facet_basis(mesh, facets=None):
 
 
 # ============================================================
-# 刚度矩阵
+# Stiffness matrix
 # ============================================================
 
 def assemble_stiffness_matrix(mesh, sigma):
-    """装配 P1 刚度矩阵 K。
+    """Assemble P1 stiffness matrix K.
 
-    K_{ij} = ∫_Ω σ(x) ∇φ_i · ∇φ_j dx
+    K_{ij} = int_Omega sigma(x) grad(phi_i) . grad(phi_j) dx
 
     Parameters
     ----------
     mesh : EllipticMesh
-    sigma : array (M,) 或 scalar
-        每个三角形上的电导率（P0 表示），或均匀标量。
+    sigma : array (M,) or scalar
+        Conductivity per triangle (P0 representation), or uniform scalar.
 
     Returns
     -------
@@ -87,15 +87,15 @@ def assemble_stiffness_matrix(mesh, sigma):
         sigma = np.full(mesh.n_triangles, float(sigma))
     sigma = np.asarray(sigma, dtype=np.float64)
 
-    # 将 P0 系数投影到 skfem 的 quadrature 点
-    # basis.dx 已包含 Jacobian，所以只需在 form 中提供系数
+    # Project P0 coefficients to skfem quadrature points
+    # basis.dx already includes Jacobian, so just provide coefficient in form
     @BilinearForm
     def stiffness(u, v, w):
-        # w.x[0], w.x[1] 是 quadrature 点坐标
-        # 需要用 P0 值：每个 element 一个常数
+        # w.x[0], w.x[1] are quadrature point coordinates
+        # Need P0 values: one constant per element
         return w["sigma"] * dot(grad(u), grad(v))
 
-    # 将 P0 sigma 插值到 ElementTriP0 上
+    # Interpolate P0 sigma onto ElementTriP0
     skfem_mesh = _build_skfem_mesh(mesh)
     p0_basis = Basis(skfem_mesh, ElementTriP0())
     sigma_proj = p0_basis.zeros()
@@ -106,19 +106,19 @@ def assemble_stiffness_matrix(mesh, sigma):
 
 
 # ============================================================
-# 质量矩阵
+# Mass matrix
 # ============================================================
 
 def assemble_mass_matrix(mesh, coeff=None):
-    """装配 P1 质量矩阵 M。
+    """Assemble P1 mass matrix M.
 
-    M_{ij} = ∫_Ω c(x) φ_i φ_j dx
+    M_{ij} = int_Omega c(x) phi_i phi_j dx
 
     Parameters
     ----------
     mesh : EllipticMesh
-    coeff : array (M,) 或 scalar 或 None
-        每个三角形上的系数（P0），默认 1。
+    coeff : array (M,) or scalar or None
+        Coefficient per triangle (P0), default 1.
 
     Returns
     -------
@@ -147,13 +147,13 @@ def assemble_mass_matrix(mesh, coeff=None):
 
 
 # ============================================================
-# 边界质量矩阵
+# Boundary mass matrix
 # ============================================================
 
 def assemble_boundary_mass_matrix(mesh):
-    """装配边界质量矩阵 M_Γ。
+    """Assemble boundary mass matrix M_Gamma.
 
-    (M_Γ)_{ij} = ∫_Γ φ_i φ_j ds
+    (M_Gamma)_{ij} = int_Gamma phi_i phi_j ds
 
     Returns
     -------
@@ -170,19 +170,19 @@ def assemble_boundary_mass_matrix(mesh):
 
 
 # ============================================================
-# 边界载荷向量
+# Boundary load vector
 # ============================================================
 
 def assemble_boundary_load(mesh, f_func):
-    """装配边界载荷向量。
+    """Assemble boundary load vector.
 
-    b_i = ∫_Γ f(x) φ_i(x) ds
+    b_i = int_Gamma f(x) phi_i(x) ds
 
     Parameters
     ----------
     mesh : EllipticMesh
     f_func : callable
-        边界源函数 f(x, y) -> scalar。
+        Boundary source function f(x, y) -> scalar.
 
     Returns
     -------
@@ -200,14 +200,14 @@ def assemble_boundary_load(mesh, f_func):
 
 
 # ============================================================
-# 边界均值约束
+# Boundary mean constraint
 # ============================================================
 
 def assemble_boundary_mean_constraint(mesh):
-    """装配边界均值约束向量 B。
+    """Assemble boundary mean constraint vector B.
 
-    约束：∫_Γ y ds = 0，即 B^T y = 0
-    其中 B_i = ∫_Γ φ_i ds
+    Constraint: int_Gamma y ds = 0, i.e., B^T y = 0
+    where B_i = int_Gamma phi_i ds
 
     Returns
     -------
@@ -224,31 +224,31 @@ def assemble_boundary_mean_constraint(mesh):
 
 
 # ============================================================
-# Neumann 求解器
+# Neumann solver
 # ============================================================
 
 def solve_neumann_system(K, b, B):
-    """通过鞍点系统（Lagrange 乘子法）求解 Neumann 问题。
+    """Solve Neumann problem via saddle-point system (Lagrange multiplier method).
 
     [[K,  B],   [y]   [b]
      [B^T, 0]] * [λ] = [0]
 
-    对应 FreeFEM:
+    Corresponds to FreeFEM:
       matrix AA = [[A,B],[B',0]];
       xx = AA^-1 * bb;
 
     Parameters
     ----------
-    K : sparse matrix (N, N) — 刚度矩阵
-    b : array (N,) — 载荷向量
-    B : array (N,) — 约束向量
+    K : sparse matrix (N, N) -- stiffness matrix
+    b : array (N,) -- load vector
+    B : array (N,) -- constraint vector
 
     Returns
     -------
-    y : array (N,) — 满足 ∫_Γ y ds = 0 的解
+    y : array (N,) -- solution satisfying int_Gamma y ds = 0
     """
-    # 注意：此函数只做线性代数，不依赖 FEM 库
-    # 保持与 legacy 版本完全一致的实现
+    # Note: this function only does linear algebra, doesn't depend on FEM library
+    # Keeps identical implementation to legacy version
     n = K.shape[0]
 
     B_col = sparse.csr_matrix(B.reshape(-1, 1))
@@ -265,24 +265,24 @@ def solve_neumann_system(K, b, B):
 
 
 # ============================================================
-# Robin 求解器
+# Robin solver
 # ============================================================
 
 def solve_robin_system(mesh, A_op, alpha, v):
-    """求解 Robin 边值问题（正则化 DtN 映射）。
+    """Solve Robin boundary value problem (regularized DtN map).
 
     Paper 1, Eq. (3.20):
-      -Δz = 0 in Ω,   z + α ∂z/∂n = v on Γ
+      -Delta z = 0 in Omega,   z + alpha dz/dn = v on Gamma
 
-    弱形式：
-      ∫_Ω ∇z·∇w dx + (1/α) ∫_Γ z·w ds = (1/α) ∫_Γ v·w ds
+    Weak form:
+      int_Omega grad(z).grad(w) dx + (1/alpha) int_Gamma z.w ds = (1/alpha) int_Gamma v.w ds
 
     Parameters
     ----------
     mesh : EllipticMesh
-    A_op : sparse matrix (N, N) — 内部算子（刚度 + 可选质量）
-    alpha : float — 正则化参数
-    v : array (N,) — 边界数据（全域向量，仅边界节点有效）
+    A_op : sparse matrix (N, N) -- interior operator (stiffness + optional mass)
+    alpha : float -- regularization parameter
+    v : array (N,) -- boundary data (full-domain vector, only boundary nodes effective)
 
     Returns
     -------
@@ -296,26 +296,26 @@ def solve_robin_system(mesh, A_op, alpha, v):
 
 
 # ============================================================
-# 边界法向通量
+# Boundary normal flux
 # ============================================================
 
 def compute_boundary_normal_flux(mesh, sigma, y):
-    """计算边界法向通量 σ ∂y/∂n。
+    """Compute boundary normal flux sigma dy/dn.
 
-    对每个边界边，从相邻三角形计算 P1 梯度，
-    然后与几何外法向取点积。
+    For each boundary edge, computes P1 gradient from the adjacent triangle,
+    then takes dot product with the geometric outward normal.
 
     Parameters
     ----------
     mesh : EllipticMesh
-    sigma : array (M,) — 电导率（P0）
-    y : array (N,) — FEM 解
+    sigma : array (M,) -- conductivity (P0)
+    y : array (N,) -- FEM solution
 
     Returns
     -------
-    flux : array (N,) — 边界节点上的法向通量
+    flux : array (N,) -- normal flux at boundary nodes
     """
-    # 构建 edge → triangle 映射
+    # Build edge -> triangle mapping
     edge_to_tri = {}
     for tri_idx, tri in enumerate(mesh.triangles):
         for i in range(3):
@@ -336,7 +336,7 @@ def compute_boundary_normal_flux(mesh, sigma, y):
         tri_idx = tri_list[0]
         tri = mesh.triangles[tri_idx]
 
-        # P1 梯度 ∇y|_T = Σ_i y[tri[i]] * grad_phi[tri_idx, i, :]
+        # P1 gradient: grad(y)|_T = sum_i y[tri[i]] * grad_phi[tri_idx, i, :]
         grad_y = np.zeros(2)
         for i in range(3):
             grad_y += y[tri[i]] * mesh.grad_phi[tri_idx, i, :]
@@ -345,10 +345,10 @@ def compute_boundary_normal_flux(mesh, sigma, y):
         dx = p[n1, 0] - p[n0, 0]
         dy = p[n1, 1] - p[n0, 1]
         length = np.sqrt(dx ** 2 + dy ** 2)
-        # 外法向：边向量旋转 90°
+        # Outward normal: rotate edge vector by 90 degrees
         normal = np.array([dy, -dx]) / length
 
-        # 确保法向朝外（指向远离三角形质心的方向）
+        # Ensure normal points outward (away from triangle centroid)
         mid = 0.5 * (p[n0] + p[n1])
         centroid = mesh.centroids[tri_idx]
         if np.dot(normal, mid - centroid) < 0:
@@ -369,29 +369,29 @@ def compute_boundary_normal_flux(mesh, sigma, y):
 
 
 # ============================================================
-# 通用边界法向导数（不依赖特定几何形状）
+# General boundary normal derivative (geometry-independent)
 # ============================================================
 
 def compute_boundary_normal_derivative(mesh, z, sigma_bg=1.0):
-    """计算 σ₀ ∂z/∂n（通用版本，适用于任意 2D 域）。
+    """Compute sigma_0 dz/dn (general version, works for any 2D domain).
 
-    对每个边界边，从相邻三角形获取 P1 梯度 ∇z，
-    用边的几何外法向 n̂ 计算 σ₀ (∇z · n̂)。
+    For each boundary edge, gets P1 gradient grad(z) from the adjacent triangle,
+    computes sigma_0 (grad(z) . n_hat) using the geometric outward normal.
 
-    这是 compute_ellipse_normal_derivative 的通用替代版本，
-    不依赖椭圆几何 n̂ = (x₁/a², x₂/b²)/‖·‖。
+    This is a general replacement for compute_ellipse_normal_derivative,
+    without depending on elliptic geometry n_hat = (x1/a^2, x2/b^2)/||.||.
 
     Parameters
     ----------
     mesh : EllipticMesh
-    z : array (N,) — P1 FEM 解
-    sigma_bg : float — 背景电导率 σ₀
+    z : array (N,) -- P1 FEM solution
+    sigma_bg : float -- background conductivity sigma_0
 
     Returns
     -------
-    flux : array (N,) — σ₀ ∂z/∂n，边界节点有值，内部节点为零
+    flux : array (N,) -- sigma_0 dz/dn, nonzero at boundary nodes, zero at interior nodes
     """
-    # 构建 edge → triangle 映射
+    # Build edge -> triangle mapping
     edge_to_tri = {}
     for tri_idx in range(mesh.n_triangles):
         tri = mesh.triangles[tri_idx]
@@ -399,7 +399,7 @@ def compute_boundary_normal_derivative(mesh, z, sigma_bg=1.0):
             e = tuple(sorted([int(tri[i]), int(tri[(i + 1) % 3])]))
             edge_to_tri.setdefault(e, []).append(tri_idx)
 
-    # 边界节点：收集相邻边界三角形上的 ∇z
+    # Boundary nodes: collect grad(z) from adjacent boundary triangles
     node_grad = {}
     for edge in mesh.boundary_edges:
         e_key = tuple(sorted([int(edge[0]), int(edge[1])]))
@@ -414,7 +414,7 @@ def compute_boundary_normal_derivative(mesh, z, sigma_bg=1.0):
             grad_z += z[tri[i]] * mesh.grad_phi[tri_idx, i, :]
 
         n0, n1 = int(edge[0]), int(edge[1])
-        # 边的外法向
+        # Edge outward normal
         dx = mesh.points[n1, 0] - mesh.points[n0, 0]
         dy = mesh.points[n1, 1] - mesh.points[n0, 1]
         length = np.sqrt(dx ** 2 + dy ** 2)
@@ -435,7 +435,7 @@ def compute_boundary_normal_derivative(mesh, z, sigma_bg=1.0):
         n_idx = int(n_idx)
         if n_idx not in node_grad:
             continue
-        # 取所有相邻边界边上的 ∇z·n̂ 的平均
+        # Average grad(z).n_hat over all adjacent boundary edges
         vals = [sigma_bg * np.dot(g, n) for g, n in node_grad[n_idx]]
         flux[n_idx] = np.mean(vals)
 
@@ -443,31 +443,31 @@ def compute_boundary_normal_derivative(mesh, z, sigma_bg=1.0):
 
 
 # ============================================================
-# 部分边界质量矩阵（Paper 3，部分数据）
+# Partial boundary mass matrix (Paper 3, partial data)
 # ============================================================
 
 def assemble_partial_boundary_mass_matrix(mesh, gamma_d_node_mask):
-    """将边界质量矩阵拆分为 Γ_D 和 Γ_N 两部分。
+    """Split boundary mass matrix into Gamma_D and Gamma_N parts.
 
-    用于 Paper 3 的异质正则化 DtN 映射 Λ_{α,D}(A)：
-      α_D = α_d · χ_{Γ_D} + α_n · χ_{Γ_N}
+    Used for the heterogeneous regularized DtN map Lambda_{alpha,D}(A) in Paper 3:
+      alpha_D = alpha_d * chi_{Gamma_D} + alpha_n * chi_{Gamma_N}
 
-    边分类规则：
-      - 两端点都在 Γ_D → 贡献到 M_bdry_D
-      - 否则 → 贡献到 M_bdry_N
+    Edge classification rule:
+      - Both endpoints in Gamma_D -> contributes to M_bdry_D
+      - Otherwise -> contributes to M_bdry_N
 
     Parameters
     ----------
     mesh : EllipticMesh
     gamma_d_node_mask : array (N,), bool
-        True 表示节点属于可观测边界 Γ_D。
+        True if node belongs to the accessible boundary Gamma_D.
 
     Returns
     -------
-    M_bdry_D : scipy.sparse.csr_matrix (N, N) — Γ_D 边上的边界质量
-    M_bdry_N : scipy.sparse.csr_matrix (N, N) — Γ_N 边上的边界质量
+    M_bdry_D : scipy.sparse.csr_matrix (N, N) -- boundary mass on Gamma_D edges
+    M_bdry_N : scipy.sparse.csr_matrix (N, N) -- boundary mass on Gamma_N edges
     """
-    # 将边界边分成 D 和 N 两类
+    # Classify boundary edges into D and N categories
     skfem_mesh = _build_skfem_mesh(mesh)
     n = mesh.n_points
     p = mesh.points
@@ -475,8 +475,8 @@ def assemble_partial_boundary_mass_matrix(mesh, gamma_d_node_mask):
     facets_d = []
     facets_n = []
 
-    # skfem_mesh.facets 是 (2, E_total) 格式的所有边
-    # 我们需要找到边界 facets 并按 D/N 分类
+    # skfem_mesh.facets is (2, E_total) format for all edges
+    # We need to find boundary facets and classify by D/N
     boundary_facets = skfem_mesh.boundary_facets()
 
     for fidx in boundary_facets:
@@ -490,7 +490,7 @@ def assemble_partial_boundary_mass_matrix(mesh, gamma_d_node_mask):
     def bdry_mass(u, v, _):
         return u * v
 
-    # 装配 Γ_D 部分
+    # Assemble Gamma_D part
     if facets_d:
         fb_d = FacetBasis(skfem_mesh, ElementTriP1(),
                           facets=np.array(facets_d, dtype=np.int64))
@@ -498,7 +498,7 @@ def assemble_partial_boundary_mass_matrix(mesh, gamma_d_node_mask):
     else:
         M_bdry_D = sparse.csr_matrix((n, n))
 
-    # 装配 Γ_N 部分
+    # Assemble Gamma_N part
     if facets_n:
         fb_n = FacetBasis(skfem_mesh, ElementTriP1(),
                           facets=np.array(facets_n, dtype=np.int64))

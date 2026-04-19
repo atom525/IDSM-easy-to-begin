@@ -1,17 +1,17 @@
 """
-forward_solver.py - EIT 正问题求解器
+forward_solver.py - EIT forward problem solver
 
-严格按照 Ito et al. (2025) Section 4 实现：
-  PDE: ∇·(σ∇y) = 0 in Ω,  σ ∂y/∂n = f on Γ
-  约束: ∫_Γ y ds = 0
+Strict implementation per Ito et al. (2025) Section 4:
+  PDE: div(sigma grad y) = 0 in Omega,  sigma dy/dn = f on Gamma
+  Constraint: int_Gamma y ds = 0
 
-求解域: 椭圆 Ω = {x₁² + x₂²/0.64 < 1}
-背景电导率: σ₀ = 1
-夹杂体: u = σ − σ₀
+Solution domain: ellipse Omega = {x1^2 + x2^2/0.64 < 1}
+Background conductivity: sigma_0 = 1
+Inclusion: u = sigma - sigma_0
 
-噪声模型 (Paper 1 Section 4, FreeFEM Example1.edp L235-238):
-  yd(x) = y*(x) + ε·δ(x)·|y_∅(x) − y*(x)|
-  δ(x) ~ Uniform(−1, 1), ε = 相对噪声水平
+Noise model (Paper 1 Section 4, FreeFEM Example1.edp L235-238):
+  yd(x) = y*(x) + eps*delta(x)*|y_empty(x) - y*(x)|
+  delta(x) ~ Uniform(-1, 1), eps = relative noise level
 """
 
 import numpy as np
@@ -26,19 +26,19 @@ from .fem import (
 
 
 # ============================================================
-# 夹杂体定义函数
+# Inclusion definition functions
 # ============================================================
 
 def square_inclusion(x, y, center, half_width):
-    """方形夹杂体的特征函数。
+    """Characteristic function for square inclusion.
 
-    参考 FreeFEM Example1.edp L22-23:
+    Ref: FreeFEM Example1.edp L22-23:
       func cIndicator = max(0.2000001 - max(abs(x-0.4), abs(y-0.2)),
                             0.2000001 - max(abs(x+0.5), abs(y+0.2)));
 
     Parameters
     ----------
-    x, y : array or scalar — coordinates
+    x, y : array or scalar -- coordinates
     center : tuple (cx, cy)
     half_width : float
 
@@ -51,21 +51,21 @@ def square_inclusion(x, y, center, half_width):
 
 
 def circle_inclusion(x, y, center, radius):
-    """圆形夹杂体的特征函数。"""
+    """Characteristic function for circular inclusion."""
     cx, cy = center
     return (x - cx) ** 2 + (y - cy) ** 2 < radius ** 2
 
 
 def make_conductivity_example1(mesh):
-    """创建 Example 1 (EIT) 的真实电导率。
+    """Create true conductivity for Example 1 (EIT).
 
     Paper 1 Section 4.1:
-      σ₀ = 1（背景），σ = 0.3（夹杂体内，即 u = −0.7）
-      两个方形夹杂体:
-        - 中心 (0.4, 0.2), 半宽 0.2
-        - 中心 (−0.5, −0.2), 半宽 0.2
+      sigma_0 = 1 (background), sigma = 0.3 (inside inclusions, i.e., u = -0.7)
+      Two square inclusions:
+        - center (0.4, 0.2), half-width 0.2
+        - center (-0.5, -0.2), half-width 0.2
 
-    参考: FreeFEM Example1.edp L22-23.
+    Ref: FreeFEM Example1.edp L22-23.
     """
     cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
 
@@ -83,10 +83,10 @@ def make_conductivity_example1(mesh):
 
 
 def make_conductivity_conductive(mesh):
-    """创建导电型夹杂体示例 (σ > σ₀)。
+    """Create conductive inclusion example (sigma > sigma_0).
 
-    与 Example 1 相同几何形状（两个方形），但 σ = 3.0（导电型），
-    即 u = σ − σ₀ = +2.0。
+    Same geometry as Example 1 (two squares), but sigma = 3.0 (conductive),
+    i.e., u = sigma - sigma_0 = +2.0.
     """
     cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
 
@@ -104,10 +104,10 @@ def make_conductivity_conductive(mesh):
 
 
 def make_conductivity_single(mesh):
-    """创建单圆形夹杂体示例（绝缘型）。
+    """Create single circular inclusion example (insulating type).
 
-    单个圆形夹杂体，中心 (0.3, 0.0)，半径 0.25，σ = 0.3。
-    用于单夹杂 vs 多夹杂对比实验。
+    Single circular inclusion, center (0.3, 0.0), radius 0.25, sigma = 0.3.
+    For single vs multiple inclusion comparison experiments.
     """
     cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
 
@@ -124,11 +124,11 @@ def make_conductivity_single(mesh):
 
 
 # ============================================================
-# 正问题求解器
+# Forward problem solver
 # ============================================================
 
 def solve_forward(mesh, sigma, f_func):
-    """求解 EIT 正问题: ∇·(σ∇y) = 0 in Ω,  σ ∂y/∂n = f on Γ,  ∫_Γ y ds = 0。"""
+    """Solve EIT forward problem: div(sigma grad y) = 0 in Omega, sigma dy/dn = f on Gamma, int_Gamma y ds = 0."""
     K = assemble_stiffness_matrix(mesh, sigma)
     b = assemble_boundary_load(mesh, f_func)
     B = assemble_boundary_mean_constraint(mesh)
@@ -138,10 +138,10 @@ def solve_forward(mesh, sigma, f_func):
 
 
 def solve_forward_general(mesh, sigma, potential_coeff, f_func, is_boundary_source=True):
-    """求解含零阶项的广义椭圆正问题: −∇·(σ∇y) + u_p·y = f。
+    """Solve generalized elliptic forward problem with zero-order term: -div(sigma grad y) + u_p*y = f.
 
-    弱形式: ∫_Ω σ∇y·∇v dx + ∫_Ω u_p·y·v dx = ∫_Γ f·v ds
-    用于 DOT (Example 3) 等含 potential 项的问题。
+    Weak form: int_Omega sigma grad(y).grad(v) dx + int_Omega u_p*y*v dx = int_Gamma f*v ds
+    Used for DOT (Example 3) and other problems with potential term.
     """
     K = assemble_stiffness_matrix(mesh, sigma)
 
@@ -162,9 +162,9 @@ def solve_forward_general(mesh, sigma, potential_coeff, f_func, is_boundary_sour
 
 
 def _assemble_domain_load(mesh, f_func):
-    """组装域源载荷向量 b_i = ∫_Ω f(x) φ_i dx。
+    """Assemble domain source load vector b_i = int_Omega f(x) phi_i dx.
 
-    使用重心积分（1 点 Gauss）: ∫_{T_e} f φ_i dx ≈ |T_e|/3 * f(重心)
+    Uses centroid quadrature (1-point Gauss): int_{T_e} f phi_i dx ~ |T_e|/3 * f(centroid)
     """
     n = mesh.n_points
     b = np.zeros(n)
@@ -179,18 +179,18 @@ def _assemble_domain_load(mesh, f_func):
 
 
 # ============================================================
-# Cauchy 数据生成
+# Cauchy data generation
 # ============================================================
 
 def generate_cauchy_data(mesh, sigma_true, source_funcs, noise_level=0.0, rng=None):
-    """生成带噪声的 Cauchy 数据对。
+    """Generate noisy Cauchy data pairs.
 
-    对每个源 f_ℓ:
-      1. 求解含夹杂体的正问题: y_Ω = solve(σ_true, f_ℓ)
-      2. 求解背景正问题: y_∅ = solve(σ₀=1, f_ℓ)
-      3. 添加噪声 (Paper 1 Section 4, FreeFEM Example1.edp L235-238):
-         yd(x) = y_Ω(x) + ε·δ(x)·|y_Ω(x) − y_∅(x)|
-         δ(x) ~ Uniform(−1, 1)
+    For each source f_l:
+      1. Solve forward problem with inclusion: y_Omega = solve(sigma_true, f_l)
+      2. Solve background forward problem: y_empty = solve(sigma_0=1, f_l)
+      3. Add noise (Paper 1 Section 4, FreeFEM Example1.edp L235-238):
+         yd(x) = y_Omega(x) + eps*delta(x)*|y_Omega(x) - y_empty(x)|
+         delta(x) ~ Uniform(-1, 1)
     """
     if rng is None:
         rng = np.random.default_rng(42)
@@ -225,23 +225,23 @@ def generate_cauchy_data(mesh, sigma_true, source_funcs, noise_level=0.0, rng=No
 
 
 # ============================================================
-# 附加示例几何（Phase 4）
+# Additional example geometries (Phase 4)
 # ============================================================
 
 def make_double_example2(mesh):
-    """创建 Example 2 (double 型, 同时恢复 conductivity + potential) 的真实夹杂体。
+    """Create true inclusions for Example 2 (double type, recover conductivity + potential simultaneously).
 
     FreeFEM Example2.edp:
       type = "double", coef = "unkown"
-      σ₀ = 1.0 (cA), σ_range = 0.01 (cB), σ_inclusion = 0.3 (cU)
-      v₀ = 1.0 (vA), v_range = 10.0 (vB), v_inclusion = 6.0 (vU)
+      sigma_0 = 1.0 (cA), sigma_range = 0.01 (cB), sigma_inclusion = 0.3 (cU)
+      v_0 = 1.0 (vA), v_range = 10.0 (vB), v_inclusion = 6.0 (vU)
 
-      电导率夹杂体（2 个方形，与 Example 1 相同）:
-        - 中心 (0.4, 0.2), 半宽 0.2
-        - 中心 (−0.5, −0.2), 半宽 0.2
-      Potential 夹杂体（2 个方形，不同位置）:
-        - 中心 (−0.4, 0.1), 半宽 0.2
-        - 中心 (0.5, −0.1), 半宽 0.2
+      Conductivity inclusions (2 squares, same as Example 1):
+        - center (0.4, 0.2), half-width 0.2
+        - center (-0.5, -0.2), half-width 0.2
+      Potential inclusions (2 squares, different locations):
+        - center (-0.4, 0.1), half-width 0.2
+        - center (0.5, -0.1), half-width 0.2
 
     Returns
     -------
@@ -254,11 +254,11 @@ def make_double_example2(mesh):
     potential_bg = 1.0
     potential_inclusion = 6.0
 
-    # 电导率夹杂体（同 Example 1）
+    # Conductivity inclusions (same as Example 1)
     in_c1 = square_inclusion(cx, cy, (0.4, 0.2), 0.2)
     in_c2 = square_inclusion(cx, cy, (-0.5, -0.2), 0.2)
 
-    # Potential 夹杂体（不同位置）
+    # Potential inclusions (different locations)
     in_v1 = square_inclusion(cx, cy, (-0.4, 0.1), 0.2)
     in_v2 = square_inclusion(cx, cy, (0.5, -0.1), 0.2)
 
@@ -274,14 +274,14 @@ def make_double_example2(mesh):
 
 
 def make_potential_example3(mesh):
-    """创建 Example 3 (仅 potential 型, DOT) 的真实夹杂体。
+    """Create true inclusions for Example 3 (potential-only type, DOT).
 
     FreeFEM Example3.edp:
-      type = "potential", vA = 1e-10, vB = 10.0, vU = 6（未知模式）
-      σ₀ = 1（常数），无电导率夹杂体
-      Potential 夹杂体 v:
-        - 中心 (−0.6, 0.1), 半宽 0.15
-        - 中心 (0.5, −0.1), 半宽 0.2
+      type = "potential", vA = 1e-10, vB = 10.0, vU = 6 (unknown mode)
+      sigma_0 = 1 (constant), no conductivity inclusions
+      Potential inclusions v:
+        - center (-0.6, 0.1), half-width 0.15
+        - center (0.5, -0.1), half-width 0.2
     """
     cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
 
@@ -301,12 +301,12 @@ def make_potential_example3(mesh):
 
 def generate_cauchy_data_general(mesh, sigma_true, potential_true,
                                   source_funcs, noise_level=0.0, rng=None):
-    """为含零阶项的广义模型 (DOT) 生成 Cauchy 数据。
+    """Generate Cauchy data for the generalized model with zero-order term (DOT).
 
-    −∇·(σ∇y) + v·y = 0 in Ω,  σ ∂y/∂n = f on Γ
+    -div(sigma grad y) + v*y = 0 in Omega,  sigma dy/dn = f on Gamma
 
-    与 generate_cauchy_data 结构相同，但使用 solve_forward_general
-    求解含 potential 项的 PDE。
+    Same structure as generate_cauchy_data, but uses solve_forward_general
+    to solve PDE with potential term.
     """
     if rng is None:
         rng = np.random.default_rng(42)

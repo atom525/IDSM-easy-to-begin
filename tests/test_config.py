@@ -1,4 +1,4 @@
-"""测试 config.py — 配置 dataclass 测试。"""
+"""Tests for config.py -- configuration dataclasses."""
 
 import os
 import pytest
@@ -13,7 +13,7 @@ from IDSM.src.config import (
 
 
 def test_runtime_config_defaults():
-    """RuntimeConfig 默认值应合理。"""
+    """RuntimeConfig defaults should be sensible."""
     cfg = RuntimeConfig()
     assert cfg.use_gpu is False
     assert cfg.gpu_backend == "auto"
@@ -21,7 +21,7 @@ def test_runtime_config_defaults():
 
 
 def test_runtime_config_from_env_defaults(monkeypatch):
-    """from_env() 在无环境变量时应使用默认值。"""
+    """from_env() should use defaults when no env vars are set."""
     monkeypatch.delenv("IDSM_USE_GPU", raising=False)
     monkeypatch.delenv("IDSM_GPU_BACKEND", raising=False)
     monkeypatch.delenv("IDSM_SEED", raising=False)
@@ -32,7 +32,7 @@ def test_runtime_config_from_env_defaults(monkeypatch):
 
 
 def test_runtime_config_from_env_custom(monkeypatch):
-    """from_env() 应正确读取环境变量。"""
+    """from_env() should read environment variables correctly."""
     monkeypatch.setenv("IDSM_USE_GPU", "1")
     monkeypatch.setenv("IDSM_GPU_BACKEND", "cupy")
     monkeypatch.setenv("IDSM_SEED", "123")
@@ -43,7 +43,7 @@ def test_runtime_config_from_env_custom(monkeypatch):
 
 
 def test_runtime_resolve_device_cpu():
-    """GPU 关闭时 resolve_device 应返回 CPU。"""
+    """resolve_device should return CPU when GPU is disabled."""
     cfg = RuntimeConfig(use_gpu=False)
     dev = cfg.resolve_device()
     assert dev["enabled"] is False
@@ -51,7 +51,7 @@ def test_runtime_resolve_device_cpu():
 
 
 def test_runtime_resolve_device_gpu_fallback():
-    """GPU 开启时应安全回退到 CPU。"""
+    """GPU enabled should safely fall back to CPU."""
     cfg = RuntimeConfig(use_gpu=True)
     dev = cfg.resolve_device()
     assert dev["enabled"] is False
@@ -60,14 +60,14 @@ def test_runtime_resolve_device_gpu_fallback():
 
 
 def test_mesh_config_defaults():
-    """MeshConfig 默认值应合理。"""
+    """MeshConfig defaults should be sensible."""
     cfg = MeshConfig()
     assert cfg.n_boundary == 500
     assert cfg.n_grid == 201
 
 
 def test_full_idsm_config_defaults():
-    """FullIDSMConfig 默认值应合理。"""
+    """FullIDSMConfig defaults should be sensible."""
     cfg = FullIDSMConfig()
     assert cfg.sigma_bg == 1.0
     assert cfg.alpha == 1.0
@@ -75,23 +75,23 @@ def test_full_idsm_config_defaults():
     assert cfg.lowrank_method == "BFG"
     assert cfg.problem_type == "conductivity"
     assert 0.0 < cfg.sigma_range < cfg.sigma_bg
-    # sigma_range 是搜索下界（FreeFEM: cB=0.01），非夹杂真值
+    # sigma_range is the search lower bound (FreeFEM: cB=0.01), not inclusion truth
     assert cfg.sigma_range == 0.01
-    # R₀ 初始化指数（FreeFEM L260-263）
+    # R_0 initialization exponent (FreeFEM L260-263)
     assert cfg.cond_exponent == 0.5
     assert cfg.pot_exponent == 0.0
 
 
 def test_partial_idsm_config_defaults():
-    """PartialIDSMConfig 默认值应合理。"""
+    """PartialIDSMConfig defaults should be sensible."""
     cfg = PartialIDSMConfig()
-    assert cfg.alpha_d < cfg.alpha_n  # α_d < α_n（Paper 3 设计）
+    assert cfg.alpha_d < cfg.alpha_n  # alpha_d < alpha_n (Paper 3 design)
     assert cfg.p_norm >= 1.0
     assert cfg.gamma_D > 0
 
 
 def test_notebook04_config_nested():
-    """Notebook04Config 应包含嵌套配置。"""
+    """Notebook04Config should contain nested configs."""
     cfg = Notebook04Config()
     assert isinstance(cfg.mesh, MeshConfig)
     assert isinstance(cfg.full, FullIDSMConfig)
@@ -101,7 +101,7 @@ def test_notebook04_config_nested():
 
 
 def test_config_dataclass_immutable_default():
-    """两个 Notebook04Config 实例的列表默认值应独立。"""
+    """Two Notebook04Config instances should have independent list defaults."""
     cfg1 = Notebook04Config()
     cfg2 = Notebook04Config()
     cfg1.noise_levels.append(0.99)

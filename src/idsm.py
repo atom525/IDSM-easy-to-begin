@@ -42,26 +42,26 @@ from .config import RuntimeConfig
 # ============================================================
 
 def compute_ellipse_normal_derivative(mesh, z, sigma_bg=1.0, a=1.0, b=0.8):
-    """计算 σ₀ ∂z/∂n（向后兼容别名，内部委托给通用实现）。
+    """Compute sigma_0 dz/dn (backward-compatible alias, delegates to general implementation).
 
-    委托给 fem.compute_boundary_normal_derivative，不再依赖椭圆几何。
-    保留此函数名是为了兼容所有现有调用点。
+    Delegates to fem.compute_boundary_normal_derivative, no longer depends on elliptic geometry.
+    This function name is kept for compatibility with existing call sites.
 
-    原始实现使用椭圆解析法向 n̂ = (x₁/a², x₂/b²)/‖·‖，
-    通用版本使用基于边几何的外法向，适用于任意 2D 域。
+    Original implementation used analytic ellipse normal n_hat = (x1/a^2, x2/b^2)/||.||,
+    general version uses edge-geometry-based outward normal, works for any 2D domain.
 
     Reference: FreeFEM Example1.edp L329-330
 
     Parameters
     ----------
     mesh : EllipticMesh
-    z : array (N,) — P1 FEM 解
-    sigma_bg : float — 背景电导率 σ₀
-    a, b : float — 椭圆半轴（保留参数签名兼容，不再使用）
+    z : array (N,) -- P1 FEM solution
+    sigma_bg : float -- background conductivity sigma_0
+    a, b : float -- ellipse semi-axes (kept for signature compatibility, no longer used)
 
     Returns
     -------
-    flux : array (N,) — σ₀ ∂z/∂n，边界节点有值，内部节点为零
+    flux : array (N,) -- sigma_0 dz/dn, nonzero at boundary nodes, zero at interior nodes
     """
     from .fem import compute_boundary_normal_derivative
     return compute_boundary_normal_derivative(mesh, z, sigma_bg=sigma_bg)
@@ -73,35 +73,35 @@ def compute_ellipse_normal_derivative(mesh, z, sigma_bg=1.0, a=1.0, b=0.8):
 
 def apply_regularized_dtn(mesh, v, A_op, alpha, M_bdry=None,
                           sigma_bg=1.0, a=1.0, b=0.8):
-    """Apply the regularized DtN map Λ_α(A) via two Robin BVPs.
+    """Apply the regularized DtN map Lambda_alpha(A) via two Robin BVPs.
 
-    数学背景（Eq. 3.5）：
-      经典 DtN 映射 Λ(A): H^{1/2}(Γ) → H^{-1/2}(Γ) 是无界算子，
-      直接计算会放大噪声。正则化版本 Λ_α(A) 由 Robin 问题定义：
-        Λ_α(A) v = σ₀ ∂z_α/∂n，其中 Az_α = 0 in Ω, z_α + α σ₀∂z_α/∂n = v on Γ
-      当 α → 0 时 Λ_α → Λ（经典 DtN）；α 越大正则化越强，噪声敏感度越低。
+    Mathematical background (Eq. 3.5):
+      Classical DtN map Lambda(A): H^{1/2}(Gamma) -> H^{-1/2}(Gamma) is unbounded,
+      direct computation amplifies noise. Regularized version Lambda_alpha(A) is defined by Robin problem:
+        Lambda_alpha(A) v = sigma_0 dz_alpha/dn, where Az_alpha = 0 in Omega, z_alpha + alpha sigma_0 dz_alpha/dn = v on Gamma
+      As alpha -> 0, Lambda_alpha -> Lambda (classical DtN); larger alpha means stronger regularization, lower noise sensitivity.
 
-    离散实现（Eq. 3.20）：
-      Step 1: weak form [A_op + (1/α) M_Γ] z = (1/α) M_Γ v  （第一次 Robin 求解）
-      Step 2: g = σ₀ ∂z/∂n on Γ                              （边界法向导数）
-      Step 3: [A_op + (1/α) M_Γ] w = (1/α) M_Γ g             （第二次 Robin 求解）
+    Discrete implementation (Eq. 3.20):
+      Step 1: weak form [A_op + (1/alpha) M_Gamma] z = (1/alpha) M_Gamma v  (first Robin solve)
+      Step 2: g = sigma_0 dz/dn on Gamma                                     (boundary normal derivative)
+      Step 3: [A_op + (1/alpha) M_Gamma] w = (1/alpha) M_Gamma g            (second Robin solve)
 
-    由 Lemma 3.2，双 Robin 求解计算
-      G[u]* Λ_α(A)* Λ_α(A) 的核心部分。
+    By Lemma 3.2, the double Robin solve computes
+      the core part of G[u]* Lambda_alpha(A)* Lambda_alpha(A).
 
     Parameters
     ----------
     mesh : EllipticMesh
-    v : array (N,) — Robin boundary data
-    A_op : sparse (N, N) — interior operator
-    alpha : float — regularization parameter
-    M_bdry : sparse (N, N) or None — precomputed boundary mass matrix
+    v : array (N,) -- Robin boundary data
+    A_op : sparse (N, N) -- interior operator
+    alpha : float -- regularization parameter
+    M_bdry : sparse (N, N) or None -- precomputed boundary mass matrix
     sigma_bg : float
-    a, b : float — ellipse semi-axes
+    a, b : float -- ellipse semi-axes
 
     Returns
     -------
-    w : array (N,) — second Robin solve result
+    w : array (N,) -- second Robin solve result
     """
     if M_bdry is None:
         M_bdry = assemble_boundary_mass_matrix(mesh)
@@ -316,46 +316,46 @@ class LowRankPreconditioner:
 
 def initialize_r0_diagonal(mesh, cond_exponent=0.5, pot_exponent=0.0,
                            constant_value=None, epsilon=0.02):
-    """初始化 R₀ 对角预条件子。
+    """Initialize R_0 diagonal preconditioner.
 
-    Paper 1, Section 4.1：离散 R₀ 基于 ‖∇Φ_x‖_{L²(Γ)} 的构造。
+    Paper 1, Section 4.1: Discrete R_0 based on ||grad Phi_x||_{L^2(Gamma)} construction.
 
-    FreeFEM L252–264 (diagFunc):
-      conductivity: diagFunc(i) = 1/((∫_Γ 1/dis^2.0)^cond_exponent)
-      potential:    diagFunc(i+M) = 1/((∫_Γ 1/dis^2.0)^pot_exponent)
+    FreeFEM L252-264 (diagFunc):
+      conductivity: diagFunc(i) = 1/((int_Gamma 1/dis^2.0)^cond_exponent)
+      potential:    diagFunc(i+M) = 1/((int_Gamma 1/dis^2.0)^pot_exponent)
 
-    其中 dis = |x_i − x'|，x_i 是三角形 i 的质心，x' 在 Γ 上运行。
+    where dis = |x_i - x'|, x_i is centroid of triangle i, x' runs on Gamma.
 
-    对于 Example 2 (double 型)，FreeFEM Example2.edp L217-224 使用常数初始化:
-      diagFunc(i) = constant_value（默认 100.0）
+    For Example 2 (double type), FreeFEM Example2.edp L217-224 uses constant init:
+      diagFunc(i) = constant_value (default 100.0)
 
     Parameters
     ----------
     mesh : EllipticMesh
     cond_exponent : float
-        电导率块的指数，默认 0.5（FreeFEM Example1: L260–261）。
+        Conductivity block exponent, default 0.5 (FreeFEM Example1: L260-261).
     pot_exponent : float
-        势块的指数，默认 0.0（即恒等，FreeFEM L262–263）。
+        Potential block exponent, default 0.0 (i.e., identity, FreeFEM L262-263).
     constant_value : float or None
-        若非 None，则启用 Example 2 模式：D(i) = min_θ |centroid_i − Γ(θ)|²
-        （FreeFEM Example2.edp L217-224: diagFunc = min(disI²)）。
-        此参数的具体数值不影响结果（仅作为模式开关）。
+        If not None, enables Example 2 mode: D(i) = min_theta |centroid_i - Gamma(theta)|^2
+        (FreeFEM Example2.edp L217-224: diagFunc = min(disI^2)).
+        The specific numeric value doesn't affect results (serves as mode switch only).
     epsilon : float
-        边界截断距离，默认 0.02。
+        Boundary cutoff distance, default 0.02.
 
     Returns
     -------
-    diag : array (2*M,) — [conductivity_part, potential_part]
+    diag : array (2*M,) -- [conductivity_part, potential_part]
     """
     M = mesh.n_triangles
 
     if constant_value is not None:
-        # Example 2 模式（FreeFEM Example2.edp L217-224）：
-        # diagFunc(i) = min_θ |centroid_i - Γ(θ)|²
-        # 其中 100.0 只是初始上界，真正的值是到边界最近点的距离平方。
+        # Example 2 mode (FreeFEM Example2.edp L217-224):
+        # diagFunc(i) = min_theta |centroid_i - Gamma(theta)|^2
+        # 100.0 is just an initial upper bound; actual value is min distance squared to boundary.
         from .utils import distance_to_boundary
         d2b = distance_to_boundary(mesh, mesh.centroids)
-        D = d2b ** 2  # min distance squared（匹配 FreeFEM disI^2）
+        D = d2b ** 2  # min distance squared (matches FreeFEM disI^2)
         D[d2b < epsilon] = 0.0
         return np.concatenate([D, D.copy()])
 
@@ -372,13 +372,13 @@ def initialize_r0_diagonal(mesh, cond_exponent=0.5, pot_exponent=0.0,
     r0_sq = np.sum(diff0 ** 2, axis=2) + 1e-20
     r1_sq = np.sum(diff1 ** 2, axis=2) + 1e-20
 
-    # 梯形法则在 ∂Ω 上：Σ_e (L_e/2) (1/r0² + 1/r1²)
+    # Trapezoidal rule on boundary: sum_e (L_e/2) (1/r0^2 + 1/r1^2)
     integrand = bdry_lengths[None, :] * 0.5 * (1.0 / r0_sq + 1.0 / r1_sq)
     integral = np.sum(integrand, axis=1)
 
-    # 电导率块：1/(∫_Γ 1/dis²)^cond_exponent
+    # Conductivity block: 1/(int_Gamma 1/dis^2)^cond_exponent
     diag_cond = 1.0 / np.power(integral + 1e-30, cond_exponent)
-    # 势块：1/(∫_Γ 1/dis²)^pot_exponent
+    # Potential block: 1/(int_Gamma 1/dis^2)^pot_exponent
     diag_pot = 1.0 / np.power(integral + 1e-30, pot_exponent)
 
     return np.concatenate([diag_cond, diag_pot])
@@ -413,9 +413,9 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
     lowrank_method : str — 'DFP' or 'BFG'
     problem_type : str — 'conductivity', 'potential', or 'double'
     coeff_known : bool — True for known-coefficient mapping
-    cond_exponent : float — R₀ 对角中 conductivity 块的指数（FreeFEM Example1: 0.5）
-    pot_exponent : float — R₀ 对角中 potential 块的指数（FreeFEM Example3: 1.5, Example1: 0.0）
-    r0_constant : float or None — 若非 None，R₀ 使用常数初始化（FreeFEM Example2: 100.0）
+    cond_exponent : float -- R_0 diagonal conductivity block exponent (FreeFEM Example1: 0.5)
+    pot_exponent : float -- R_0 diagonal potential block exponent (FreeFEM Example3: 1.5, Example1: 0.0)
+    r0_constant : float or None -- if not None, R_0 uses constant init (FreeFEM Example2: 100.0)
     verbose : bool
     runtime_config : RuntimeConfig or None
 

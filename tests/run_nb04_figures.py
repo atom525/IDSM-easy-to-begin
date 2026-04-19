@@ -1,6 +1,6 @@
-"""重跑 NB04 全部 13 张图（不依赖 jupyter kernel）。
+"""Re-run all 13 figures from NB04 (no jupyter kernel needed).
 
-用法：
+Usage:
     cd /mnt/c/Users/maxfo/Desktop/Summer_Research_CUHK/IDSM
     python -m tests.run_nb04_figures
 """
@@ -8,7 +8,7 @@
 import sys, os, time
 import numpy as np
 
-# Agg 后端：无窗口输出
+# Agg backend: headless rendering
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -37,15 +37,15 @@ from src.idsm_partial import (
 from src.utils import compute_iou, EXAMPLE1_BOXES
 
 # ============================================================
-# 初始化
+# Initialization
 # ============================================================
 cfg = Notebook04Config()
 runtime_cfg = RuntimeConfig.from_env()
 np.random.seed(runtime_cfg.random_seed)
 
 mesh = generate_elliptic_mesh(n_boundary=cfg.mesh.n_boundary)
-print(f"网格: {mesh.n_points} 节点, {mesh.n_triangles} 三角形, "
-      f"{len(mesh.boundary_nodes)} 边界节点")
+print(f"Mesh: {mesh.n_points} nodes, {mesh.n_triangles} triangles, "
+      f"{len(mesh.boundary_nodes)} boundary nodes")
 
 fig_dir = os.path.join(os.path.dirname(__file__), '..', 'figures')
 os.makedirs(fig_dir, exist_ok=True)
@@ -61,7 +61,7 @@ def save_fig(fig, name):
     path = os.path.join(fig_dir, name)
     fig.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"  → 已保存 {name}")
+    print(f"  → Saved {name}")
 
 
 # ============================================================
@@ -183,7 +183,7 @@ hist_ex3 = run_idsm(
 t_ex3 = time.time() - t0
 v_final = hist_ex3['potential_guess'][-1]
 r = hist_ex3['residuals']
-print(f"  时间: {t_ex3:.1f}s, resid {r[0]:.4e}→{r[-1]:.4e}")
+print(f"  Time: {t_ex3:.1f}s, resid {r[0]:.4e}→{r[-1]:.4e}")
 print(f"  v ∈ [{v_final.min():.4f}, {v_final.max():.4f}]")
 
 # --- Figure 3: 04_example3_potential.png ---
@@ -250,7 +250,7 @@ for i, (label, theta_range) in enumerate(partial_configs):
 plt.tight_layout()
 save_fig(fig, '04_boundary_configs.png')
 
-# 重建
+# Reconstruction
 sigma_true, u_true = make_conductivity_example1(mesh)
 sources = [lambda x, y: x, lambda x, y: y]
 np.random.seed(runtime_cfg.random_seed)
@@ -372,7 +372,7 @@ for name, _ in partial_configs:
 print("\n  Ablation: Homogeneous vs HR-DtN (right half)...")
 gamma_right_abl = define_accessible_boundary(mesh, (-np.pi / 2, np.pi / 2))
 
-# 使用与 partial 相同的 cauchy 数据（上面已生成）
+# Reuse the same cauchy data as partial (generated above)
 hist_homo = run_idsm_partial(
     mesh, cauchy, gamma_right_abl,
     sigma_bg=1.0, sigma_range=0.01,
@@ -880,12 +880,12 @@ res_ex2 = hist_ex2['residuals']
 
 iou_sigma_ex2 = compute_iou(u_sigma_ex2, sf_ex2 - dcfg.sigma_bg, mesh)
 iou_potential_ex2 = compute_iou(u_potential_ex2, vf_ex2 - dcfg.potential_bg, mesh)
-print(f"  Example 2 结果:")
+print(f"  Example 2 results:")
 print(f"    σ: IoU={iou_sigma_ex2:.4f}, range=[{sf_ex2.min():.3f}, {sf_ex2.max():.3f}]")
 print(f"    v: IoU={iou_potential_ex2:.4f}, range=[{vf_ex2.min():.3f}, {vf_ex2.max():.3f}]")
 print(f"    Residual: {res_ex2[0]:.4e} → {res_ex2[-1]:.4e}")
 
-# Example 2 真值夹杂体位置
+# Example 2 true inclusion positions
 EX2_COND_BOXES = [
     {'center': (0.4, 0.2), 'half_width': 0.2},
     {'center': (-0.5, -0.2), 'half_width': 0.2},
@@ -898,7 +898,7 @@ EX2_POT_BOXES = [
 # --- Figure 15: 04_example2_double.png ---
 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
-# 真值 σ
+# True sigma
 ax = axes[0, 0]
 im = ax.tripcolor(tri, sigma_ex2, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=1.5)
 for box in EX2_COND_BOXES:
@@ -910,7 +910,7 @@ ax.set_aspect('equal')
 ax.set_title(r'True $\sigma$ (insulating, $\sigma_{\mathrm{inc}}=0.3$)')
 plt.colorbar(im, ax=ax, shrink=0.8)
 
-# 重建 σ
+# Reconstructed sigma
 ax = axes[0, 1]
 im = ax.tripcolor(tri, sf_ex2, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=1.5)
 for box in EX2_COND_BOXES:
@@ -922,7 +922,7 @@ ax.set_aspect('equal')
 ax.set_title(f'Reconstructed $\\sigma$: IoU={iou_sigma_ex2:.3f}')
 plt.colorbar(im, ax=ax, shrink=0.8)
 
-# 残差曲线
+# Residual curve
 ax = axes[0, 2]
 ax.semilogy(range(len(res_ex2)), res_ex2, 'b-o', markersize=3)
 ax.set_xlabel('Iteration')
@@ -930,7 +930,7 @@ ax.set_ylabel('Residual')
 ax.set_title('Residual Convergence')
 ax.grid(True, alpha=0.3)
 
-# 真值 v
+# True v
 ax = axes[1, 0]
 im = ax.tripcolor(tri, potential_ex2, cmap='YlOrRd', shading='flat', vmin=0.5, vmax=7.0)
 for box in EX2_POT_BOXES:
@@ -942,7 +942,7 @@ ax.set_aspect('equal')
 ax.set_title(r'True $v$ (potential, $v_{\mathrm{inc}}=6.0$)')
 plt.colorbar(im, ax=ax, shrink=0.8)
 
-# 重建 v
+# Reconstructed v
 ax = axes[1, 1]
 im = ax.tripcolor(tri, vf_ex2, cmap='YlOrRd', shading='flat', vmin=0.5, vmax=7.0)
 for box in EX2_POT_BOXES:
@@ -954,7 +954,7 @@ ax.set_aspect('equal')
 ax.set_title(f'Reconstructed $v$: IoU={iou_potential_ex2:.3f}')
 plt.colorbar(im, ax=ax, shrink=0.8)
 
-# 参数表
+# Parameter table
 ax = axes[1, 2]
 ax.axis('off')
 param_text = (
@@ -982,18 +982,18 @@ save_fig(fig, '04_example2_double.png')
 
 
 # ============================================================
-# 总结
+# Summary
 # ============================================================
 print("\n" + "=" * 60)
-print("  全部完成")
+print("  All done")
 print("=" * 60)
 total = time.time() - T_GLOBAL
-print(f"  总耗时: {total:.0f}s ({total / 60:.1f}min)")
-print(f"  图片目录: {os.path.abspath(fig_dir)}")
+print(f"  Total time: {total:.0f}s ({total / 60:.1f}min)")
+print(f"  Figures dir: {os.path.abspath(fig_dir)}")
 
-# 列出所有生成的图片
+# List all generated figures
 figs_generated = sorted(f for f in os.listdir(fig_dir) if f.startswith('04_'))
-print(f"  生成图片数: {len(figs_generated)}")
+print(f"  Figures generated: {len(figs_generated)}")
 for f in figs_generated:
     sz = os.path.getsize(os.path.join(fig_dir, f))
     print(f"    {f} ({sz / 1024:.0f} KB)")
