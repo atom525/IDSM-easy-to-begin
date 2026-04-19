@@ -398,13 +398,13 @@ On the theoretical side, the convergence guarantees in Paper 1 (Theorem 3.1) app
 
 Several questions surfaced during implementation that we were unable to resolve within the project scope.
 
-First, BFG consistently outperforms DFP for insulating inclusions (IoU 0.33 vs ~0.29) but not for conductive ones. The papers note that both "work equally well" without explaining the gap. Our hypothesis is that BFG, which directly approximates the inverse Hessian, handles the non-convexity of insulating reconstructions (where $\sigma$ is bounded away from $\sigma_0$) better than DFP's direct Hessian approximation. A spectral analysis of the Hessian near convergence could test this.
+First, the papers note that DFP and BFG "work equally well" (Paper 1, §4.1), and our experiments confirm this: both achieve similar residuals (5.58e-03) and intensity recovery (σ_min ≈ 0.62) for the standard Example 1 configuration. However, we did not systematically compare them across different inclusion types (conductive vs insulating) or noise levels, so it remains unclear whether one method has advantages in specific regimes. A spectral analysis of the Hessian near convergence could reveal whether the two quasi-Newton approximations behave differently for non-convex landscapes.
 
 Second, we empirically observe that the residual converges as $O(k^{-1/2})$ for the first 10 iterations and then stagnates at the noise level. Paper 1 proves convergence for exact data but the noisy case has no rate estimate. Is $O(k^{-1/2})$ optimal, or could a better preconditioner improve it?
 
 Third, Paper 3 fixes the coarse mesh at 1/4 of the fine mesh triangles for stabilization, without justification. Is there a principled criterion? Too coarse loses spatial detail; too fine defeats the purpose of stabilization.
 
-Fourth, for the parabolic extension (arXiv:2511.08197, by the same group), how often should the quasi-Newton preconditioner be reinitialized as the inclusion geometry evolves over time? Reusing the previous time step's preconditioner saves computation but may become stale. This trade-off is not discussed in the parabolic paper.
+Fourth, for the parabolic extension (arXiv:2511.08197), how often should the quasi-Newton preconditioner be reinitialized as the inclusion geometry evolves over time? Reusing the previous time step's preconditioner saves computation but may become stale. This trade-off is not discussed in the parabolic paper.
 
 Finally, Paper 3 tests 50%, 75%, and 100% accessible boundary but doesn't probe the lower end. Is there a critical fraction below which reconstruction fails entirely? An information-theoretic bound on the minimum accessible data would be valuable for designing measurement protocols.
 
