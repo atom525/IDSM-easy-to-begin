@@ -120,6 +120,36 @@ The dominant cost is the sparse linear system solves within each IDSM iteration.
 
 For the test configuration (mesh with ~60K triangles, 22 iterations, 2 data pairs), IDSM takes ~47 seconds while DSM takes ~3 seconds. The partial-data version takes ~117 seconds due to the additional Robin solves for data completion.
 
+### 3.7 Quasi-Newton Secant Condition and Its Breakdown
+
+The DFP and BFG quasi-Newton updates depend on $s_k^\top \tilde{y}_k > 0$, where $s_k = \sigma_{k+1} - \sigma_k$ and $\tilde{y}_k = \zeta_{k+1} - \zeta_k$. In practice, we found this condition becomes unreliable in three situations.
+
+First, near convergence, $s_k$ and $\tilde{y}_k$ are both small (O(1e-4)), and their inner product suffers from floating-point cancellation. Second, when the box constraints clip the update aggressively — which happens for insulating inclusions at the lower bound σ=0.01 — the effective step $s_k$ can be much shorter than the gradient would suggest, breaking the secant assumption. Third, the EIT inverse problem is fundamentally non-convex: two different conductivity distributions can produce very similar boundary data. The quasi-Newton framework assumes local convexity, which fails near saddle points.
+
+We handle all three cases by skipping the rank-1 update when $s_k^\top \tilde{y}_k$ drops below a threshold ($10^{-10}$). The preconditioner simply keeps its previous value for that iteration. This is crude but effective — FreeFEM does the same. A more principled approach would be a trust-region method that adapts the step size, but that would require a line search at each iteration (2–4 extra PDE solves), roughly doubling the computational cost. For 22 iterations, skipping a few updates is a better trade-off.
+
+The first-iteration scaling mechanism ($R_0 \gets \frac{s_0^\top \tilde{y}_0}{\tilde{y}_0^\top \tilde{y}_0} R_0$, FreeFEM L432–448) is also motivated by this issue: without it, $R_0$ and $\zeta_0$ can have mismatched magnitudes by several orders, making the first secant condition numerically meaningless.
+
+### 3.8 Boundary Integral Singularity in R₀ Initialization
+
+The preconditioner diagonal $D_i = 1/(\int_\Gamma r_i^{-2}\,ds)^{1/2}$ has a physical meaning: it measures how "visible" sampling point $x_i$ is from the boundary. Interior points far from $\Gamma$ have small integrals (large $D_i$), while points near $\Gamma$ have large integrals (small $D_i$, suppressed in the reconstruction). The trouble is that the integrand $1/r^2$ diverges as $x_i$ approaches $\Gamma$.
+
+FreeFEM handles this implicitly: the triangular mesh centroids used as sampling points are always at least one element width from $\Gamma$, providing a natural cutoff. We follow the same approach, with a $10^{-20}$ additive guard on $r^2$ for numerical safety.
+
+This seemingly minor issue became critical for the partial-data case. Paper 3 introduces heterogeneous weights $w(x) = 1/(1+\alpha(x))$ that differ across $\Gamma_D$ ($w \approx 0.95$) and $\Gamma_N$ ($w \approx 0.33$). The weighted integral $\sum_e w_e L_e / r_{e}^2$ amplifies the difference between accessible and inaccessible boundary contributions. If the singularity is not handled correctly, the D values for elements near $\Gamma_N$ blow up, contaminating the entire preconditioner. This is exactly what happened with Bug #5 (Section 3.9), where the incorrect formula produced D values of 0–210 instead of the expected 0.07–0.50.
+
+### 3.9 Debugging the Partial-Data Implementation
+
+The partial-data IDSM (Algorithm 5.1) was the most difficult component to implement correctly. The full-data version worked on the first attempt, but the partial-data extension required five rounds of bug fixes before producing sensible results. These bugs were not obvious — each one alone might produce a "working" algorithm with degraded but not obviously broken output. Only the combination of all five fixes brought the residuals and IoU values in line with the full-data baseline.
+
+**The root cause** turned out to be the heterogeneous D formula (Bug #5). Our initial implementation followed Paper 3 Eq. (4.5) literally, computing a weighted Sobolev norm that mixed scalar potentials (log r) and gradient magnitudes (1/r). This produced D values ranging from 0 to 210, while the full-data version produces values in the range 0.07–0.50. The orders-of-magnitude discrepancy made the preconditioner effectively random noise.
+
+The breakthrough came from a careful comparison between FreeFEM `Example1.edp` (full data) and `Example4.edp` (which we initially assumed implemented partial-data IDSM). It turns out that **Example4.edp and Example5.edp solve nonlinear problems, not Paper 3's Algorithm 5.1**. The correct approach was to adapt the full-data `diagFunc` formula — a simple boundary integral $1/(\int_\Gamma r^{-2} ds)^{1/2}$ — with the heterogeneous weight factor $w = 1/(1+\alpha)$. This gives D values consistent with the full-data range, just with spatial modulation that suppresses the inaccessible boundary.
+
+The other four bugs were: (1) the `pot_exponent` parameter for Example 3 (DOT) was hardcoded to 0.0 instead of 1.5, making the potential channel's preconditioner a constant; (2) the first-iteration scaling was applied after storing the low-rank correction (should be before); (3) conductivity and potential blocks were scaled jointly instead of separately; (4) the cross-term formula mixed incompatible singularity types.
+
+**Lessons**: When a reference implementation doesn't match the paper, trust the code for numerics and the paper for theory. Magnitude checks are the fastest diagnostic — if D values are off by 100x, something is structurally wrong. The order of operations in quasi-Newton methods is not commutative: scale-then-store ≠ store-then-scale.
+
 ---
 
 ## 4. Key Findings from Comparative Studies
@@ -327,9 +357,13 @@ The original papers (Paper 1: arXiv:2503.00423; Paper 3: arXiv:2511.08171) prese
 
 **Summary**: All 17 parameter settings, all 11 qualitative behaviors, and all 8 code-level components are fully consistent with the original papers and FreeFEM reference code. The papers do not report quantitative reconstruction metrics (IoU, $\sigma_{\min}$, residual values), so direct numerical comparison is not possible; however, the qualitative agreement on all tested behaviors provides strong evidence of implementation correctness.
 
+**Note on FreeFEM Example4/5**: The FreeFEM reference repository includes `Example4.edp` and `Example5.edp`, which solve nonlinear inverse problems and do **not** implement Paper 3's Algorithm 5.1 (partial-data IDSM). Our partial-data implementation instead adapts the full-data `diagFunc` formula from `Example1.edp` with the heterogeneous weight factor from Paper 3. See Section 3.9 for details.
+
 ---
 
-## 7. Conclusions
+## 7. Conclusions, Limitations, and Future Directions
+
+### 7.1 Summary
 
 This project successfully created an educational implementation of the IDSM framework that:
 
@@ -338,7 +372,41 @@ This project successfully created an educational implementation of the IDSM fram
 3. **Provides systematic comparisons** across noise levels, inclusion types (conductive/insulating), inclusion counts (single/multiple), boundary data availability (full/partial), and coefficient types (conductivity/potential)
 4. **Confirms the papers' claims**: IDSM dramatically outperforms DSM in reconstruction quality, maintains noise robustness, and enables inclusion type classification
 
-The main limitation is that the over-regularized setting ($\alpha = 1$) does not recover exact inclusion intensities, consistent with the paper's discussion. Future work could explore adaptive $\alpha$ selection strategies and extensions to 3D geometries.
+### 7.2 Limitations
+
+The most visible limitation is the over-regularization effect at $\alpha=1$: IDSM finds inclusions in the right places but underestimates their intensity ($\sigma_{\min} = 0.63$ instead of the true 0.3). This is a direct consequence of the bias-variance trade-off in regularized inversion. Lower $\alpha$ recovers better intensities but amplifies noise — our sweep shows the system becomes unstable below $\alpha \approx 0.05$. There is no free lunch here.
+
+A subtler issue is that IoU, our primary quantitative metric, is insensitive to intensity errors. Two reconstructions with IoU = 0.33 can look very different: one might have the right shape but wrong $\sigma$, another might have the right $\sigma$ but leaks into neighboring elements. For clinical applications (e.g., distinguishing malignant from benign tissue), intensity accuracy matters as much as localization. A per-element relative error metric would be more informative, but requires ground truth at finer resolution than the mesh supports.
+
+On the theoretical side, the convergence guarantees in Paper 1 (Theorem 3.1) apply to exact data only. For noisy data, the residual stalls at roughly the noise level ($\sim 10^{-2}$), which we observe consistently across experiments. Whether this stall point is optimal — whether any algorithm can do better given the same noise level — is an open question.
+
+### 7.3 Future Directions
+
+**GPU acceleration.** The main computational bottleneck is the sparse linear system solve inside each Robin BVP. With $L$ data pairs and $K$ iterations, full-data IDSM requires $\sim 2LK$ sparse solves. On CPU (SciPy/UMFPACK), each solve takes ~30ms for a 16K-triangle mesh. Porting to GPU sparse solvers (cuSPARSE or AMGX) could give 10–100$\times$ speedup, bringing single-patient EIT reconstruction below 1 second — potentially fast enough for bedside monitoring. The obstacle is that unstructured triangular meshes map poorly to GPU architectures optimized for dense or structured computations.
+
+**Uncertainty quantification.** The current output is a point estimate $\sigma_k$ with no confidence information. In medical imaging, a clinician needs to know not just "there is probably an inclusion at $(0.4, 0.2)$" but "how confident is that?". The quasi-Newton preconditioner $R_k$ is, informally, an approximation to the inverse Hessian of the residual functional. Its diagonal entries could serve as crude variance estimates for each mesh element. Making this rigorous — connecting $R_k$ to a Bayesian posterior — would require either expensive MCMC sampling or a variational approximation, neither of which the current framework supports.
+
+**Adaptive regularization.** Fixed $\alpha = 1$ is robust but suboptimal. Morozov's discrepancy principle suggests choosing $\alpha$ so that the residual matches the noise level: $\|F(\sigma_\alpha) - y^d\| \approx \tau \cdot \varepsilon$. In our experiments, $\alpha = 0.1$ already brings $\sigma_{\min}$ much closer to the true value (0.24 vs 0.63 at $\alpha=1$) while keeping the residual bounded. An iteration-dependent schedule $\alpha(k)$ — starting large for stability, decreasing as the iterate improves — could capture the best of both regimes. The cost is that each $\alpha$ evaluation requires re-solving the Robin BVPs, roughly doubling iteration cost. Papers 1 and 3 note this as future work but do not implement it.
+
+**More boundary excitation patterns.** Our implementation uses $L=2$ excitation patterns ($f=x$, $f=y$), matching the papers' focus on limited-data regimes. In practice, EIT systems can apply many more patterns. Using 8–16 Fourier modes as boundary inputs would improve the conditioning of the data matrix, potentially pushing IoU significantly higher. The computational cost scales linearly with $L$, but the improvement in data informativity should more than compensate.
+
+**3D domains.** The entire codebase assumes 2D elliptic domains. Extending to 3D (ellipsoids, or realistic organ geometries from CT/MRI segmentation) requires tetrahedral P1 FEM — which scikit-fem already supports — but also a 2D surface Laplace-Beltrami on the boundary (needed for DSM) and roughly 10× more unknowns. Memory and visualization become the practical barriers.
+
+**Learned shape priors.** The current box constraint $\sigma \in [a, b]$ is the weakest possible prior. In medical applications, inclusions have structure: tumors are roughly convex, fractures are thin, ischemic regions follow vascular territories. Replacing the box projection with a learned projection onto a shape manifold — trained on medical image databases — could dramatically reduce false positives. This crosses into the territory of physics-informed machine learning, a very active area, but one that the IDSM papers do not touch.
+
+### 7.4 Open Questions
+
+Several questions surfaced during implementation that we were unable to resolve within the project scope.
+
+First, BFG consistently outperforms DFP for insulating inclusions (IoU 0.33 vs ~0.29) but not for conductive ones. The papers note that both "work equally well" without explaining the gap. Our hypothesis is that BFG, which directly approximates the inverse Hessian, handles the non-convexity of insulating reconstructions (where $\sigma$ is bounded away from $\sigma_0$) better than DFP's direct Hessian approximation. A spectral analysis of the Hessian near convergence could test this.
+
+Second, we empirically observe that the residual converges as $O(k^{-1/2})$ for the first 10 iterations and then stagnates at the noise level. Paper 1 proves convergence for exact data but the noisy case has no rate estimate. Is $O(k^{-1/2})$ optimal, or could a better preconditioner improve it?
+
+Third, Paper 3 fixes the coarse mesh at 1/4 of the fine mesh triangles for stabilization, without justification. Is there a principled criterion? Too coarse loses spatial detail; too fine defeats the purpose of stabilization.
+
+Fourth, for the parabolic extension (arXiv:2511.08197, by the same group), how often should the quasi-Newton preconditioner be reinitialized as the inclusion geometry evolves over time? Reusing the previous time step's preconditioner saves computation but may become stale. This trade-off is not discussed in the parabolic paper.
+
+Finally, Paper 3 tests 50%, 75%, and 100% accessible boundary but doesn't probe the lower end. Is there a critical fraction below which reconstruction fails entirely? An information-theoretic bound on the minimum accessible data would be valuable for designing measurement protocols.
 
 ---
 
