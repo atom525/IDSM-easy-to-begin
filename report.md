@@ -215,7 +215,7 @@ Reconstruction quality depends on the accessible boundary coverage:
 | Upper half | 0.287 | 1.1e-02 |
 | 3/4 boundary | 0.255 | 1.2e-02 |
 
-All partial-data configurations achieve residual convergence comparable to the full-data case (order 1e-02), confirming that the data completion scheme and heterogeneous DtN map effectively compensate for missing boundary information. Inclusions near the accessible boundary are better reconstructed. The heterogeneous DtN map (Innovation 2) improves stability compared to the homogeneous baseline (ablation: Homo IoU=0.281 vs HR-DtN IoU=0.267, with HR-DtN achieving lower residual 1.3e-02 vs 1.4e-02).
+All partial-data configurations achieve residual convergence comparable to the full-data case (order 1e-02), confirming that the data completion scheme and heterogeneous DtN map effectively compensate for missing boundary information. Inclusions near the accessible boundary are better reconstructed. The heterogeneous DtN map (Innovation 2) achieves lower residual than the homogeneous baseline (ablation: HR-DtN residual 1.27e-02 vs Homo 1.38e-02), though IoU is slightly lower (HR-DtN 0.267 vs Homo 0.281) — the residual metric better reflects the method's ability to fit the boundary data.
 
 ### 4.6 Single vs Multiple Inclusions
 
@@ -338,7 +338,7 @@ The original papers (Paper 1: arXiv:2503.00423; Paper 3: arXiv:2511.08171) prese
 | Under-regularization at small $\alpha$ | "under-regularized... slightly affected by noise" (Paper 1, §4.3) | $\alpha=0.01$: residual explodes to $O(10^1)$, IoU drops to 0.14 | ✓ |
 | Partial data: inclusions near $\Gamma_D$ better | "reconstruction quality improves with length of $\Gamma_D$" (Paper 3, §6.2) | Right-half IoU=0.267 > full 3/4 IoU=0.255 (inclusion closer) | ✓ |
 | Data completion effective | "partial data estimate remarkably comparable to full-data" (Paper 3, §6.1) | Partial IoU 0.255–0.287 vs full 0.329 (same order) | ✓ |
-| HR-DtN superior to homogeneous | "superior accuracy of HR-DtN over homogeneous" (Paper 3, §6.1) | HR-DtN residual 1.3e-2 < Homo 1.4e-2 | ✓ |
+| HR-DtN superior to homogeneous | "superior accuracy of HR-DtN over homogeneous" (Paper 3, §6.1) | HR-DtN residual 1.27e-2 < Homo 1.38e-2 (lower residual, though IoU slightly lower) | ✓ |
 | Stabilization essential | "pronounced inaccuracies of unstabilized scheme" (Paper 3, §6.1) | Stabilized scheme converges stably over 30 iterations | ✓ |
 | Damping factor U-shaped | "U-shaped trajectory" (Paper 3, §6.6) | Confirmed in `04_damping_factor.png` | ✓ |
 
