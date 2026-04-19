@@ -171,7 +171,7 @@ With $\alpha = 1$ (the default from Paper 1), IDSM recovers inclusion **location
 
 | $\alpha$ | IoU | $\sigma_{\min}$ | Final Residual |
 |----------|-----|-----------------|----------------|
-| 0.01 | 0.142 | 0.010 | 5.09e+01 |
+| 0.01 | 0.185 | 0.010 | 5.09e+01 |
 | 0.05 | 0.292 | 0.010 | 1.27e-02 |
 | 0.1 | 0.312 | 0.236 | 1.42e-02 |
 | 0.5 | 0.329 | 0.626 | 1.58e-02 |
@@ -183,7 +183,7 @@ With $\alpha = 1$ (the default from Paper 1), IDSM recovers inclusion **location
 Key observations:
 - **IoU is robust** across $\alpha \in [0.5, 10]$, all around 0.33. Spatial localization is insensitive to $\alpha$ in this regime.
 - **Intensity recovery improves with smaller $\alpha$**: at $\alpha=0.1$, $\sigma_{\min}=0.236$ (closer to true $\sigma=0.3$); at $\alpha=0.05$, the algorithm hits the box constraint floor $\sigma_{\min}=0.01$.
-- **Stability degrades at very small $\alpha$**: at $\alpha=0.01$, the residual explodes to $O(10^1)$ and IoU drops to 0.14, confirming that the DtN map becomes ill-conditioned without sufficient regularization.
+- **Stability degrades at very small $\alpha$**: at $\alpha=0.01$, the residual explodes to $O(10^1)$ and IoU drops to 0.19, confirming that the DtN map becomes ill-conditioned without sufficient regularization.
 - The **optimal tradeoff** is around $\alpha \in [0.1, 0.5]$, balancing intensity recovery and stability.
 
 ### 4.3 Noise Robustness
@@ -335,7 +335,7 @@ The original papers (Paper 1: arXiv:2503.00423; Paper 3: arXiv:2511.08171) prese
 | BFG and DFP work equally well | "the two correction schemes work equally well" (Paper 1, §4.1) | Both converge with comparable IoU | ✓ |
 | Double-type separates $\sigma$ and $v$ | "can more clearly distinguish the two types of inclusions by the 6th iteration" (Paper 1, §4.2) | $\sigma$ IoU=0.509, $v$ IoU=0.630; both correctly localized | ✓ |
 | Over-regularization at large $\alpha$ | "over-regularized scenario" (Paper 1, §4.3) | $\alpha=1$: $\sigma_{\min}=0.63 \gg 0.3$ (true); $\alpha=0.1$: $\sigma_{\min}=0.24$ | ✓ |
-| Under-regularization at small $\alpha$ | "under-regularized... slightly affected by noise" (Paper 1, §4.3, DOT with α=1e-3) | EIT with $\alpha=0.01$: residual explodes to $O(10^1)$, IoU drops to 0.14 (EIT less tolerant than DOT) | ✓ |
+| Under-regularization at small $\alpha$ | "under-regularized... slightly affected by noise" (Paper 1, §4.3, DOT with α=1e-3) | EIT with $\alpha=0.01$: residual explodes to $O(10^1)$, IoU drops to 0.19 (EIT less tolerant than DOT) | ✓ |
 | Partial data: inclusions near $\Gamma_D$ better | "reconstruction quality improves with length of $\Gamma_D$" (Paper 3, §6.2) | Right-half IoU=0.267 > full 3/4 IoU=0.255 (inclusion closer) | ✓ |
 | Data completion effective | "partial data estimate remarkably comparable to full-data" (Paper 3, §6.1) | Partial IoU 0.255–0.287 vs full 0.329 (same order) | ✓ |
 | HR-DtN superior to homogeneous | "superior accuracy of HR-DtN over homogeneous" (Paper 3, §6.1) | HR-DtN residual 1.27e-2 < Homo 1.38e-2 (lower residual, though IoU slightly lower) | ✓ |
