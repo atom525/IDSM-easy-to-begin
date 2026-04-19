@@ -14,11 +14,17 @@ The recently developed Iterative Direct Sampling Methods (IDSM) by Jin, Wang, Zo
 
 ### Problem Setting
 
-We consider the elliptic inverse problem on an ellipse $\Omega = \{x : x_1^2 + x_2^2/0.64 < 1\}$:
+The primary model is the Electrical Impedance Tomography (EIT) problem on an ellipse $\Omega = \{x : x_1^2 + x_2^2/0.64 < 1\}$ (Paper 1, Example 1):
 
-$$-\nabla \cdot (\sigma(x)\nabla y) + q(x)y = 0 \quad \text{in } \Omega, \qquad \sigma \frac{\partial y}{\partial \nu} = f \quad \text{on } \Gamma$$
+$$-\nabla \cdot (\sigma(x)\nabla y) = 0 \quad \text{in } \Omega, \qquad \sigma \frac{\partial y}{\partial \nu} = f \quad \text{on } \Gamma$$
 
-Given boundary measurements (Cauchy data) $\{(f_\ell, y_\ell^d)\}_{\ell=1}^L$, the goal is to recover the unknown coefficient(s) $\sigma(x)$ and/or $q(x)$.
+Given boundary measurements (Cauchy data) $\{(f_\ell, y_\ell^d)\}_{\ell=1}^L$, the goal is to recover the unknown conductivity $\sigma(x)$.
+
+The framework extends to the generalized model with a zeroth-order potential term (Paper 1, Examples 2–3):
+
+$$-\nabla \cdot (\sigma(x)\nabla y) + q(x)y = 0 \quad \text{in } \Omega$$
+
+which covers diffuse optical tomography (DOT, $\sigma=1$, recover $q$) and simultaneous recovery of both $\sigma$ and $q$.
 
 ### Methods Implemented
 
@@ -50,6 +56,24 @@ python -c "from IDSM.src import run_idsm; print('OK')"
 ```
 
 ## Quick Start
+
+The recommended way to get started is through the Jupyter notebooks, which provide step-by-step theory and code:
+
+```bash
+cd IDSM/notebooks
+jupyter notebook 01_forward_problem.ipynb   # Phase 1: FEM, mesh, forward solver
+```
+
+The four notebooks are designed to be followed in order:
+
+| Notebook | Content | Approx. Time |
+|----------|---------|--------------|
+| `01_forward_problem.ipynb` | Weak form, P1 FEM, saddle-point system, noise model | ~1 min |
+| `02_classical_dsm.ipynb` | Laplace-Beltrami, DSM indicator, limitations | ~2 min |
+| `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
+| `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
+
+Alternatively, you can use the package API directly:
 
 ```python
 from IDSM.src.mesh import generate_elliptic_mesh
@@ -207,7 +231,7 @@ runtime = RuntimeConfig(use_gpu=True)  # Will warn and fall back to CPU
 
 ```bash
 cd IDSM
-pytest tests/ -v            # Default: scikit-fem backend (83 tests)
+pytest tests/ -v            # Default: scikit-fem backend (85 tests)
 IDSM_FEM_LEGACY=1 pytest tests/ -v   # Legacy hand-written FEM backend
 ```
 
