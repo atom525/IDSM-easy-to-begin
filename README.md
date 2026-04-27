@@ -249,7 +249,7 @@ A: Yes. Set `IDSM_FEM_LEGACY=1` as an environment variable. The adapter layer in
 
 1. K. Ito, B. Jin, F. Wang, J. Zou, "Iterative direct sampling method for elliptic inverse problems with limited Cauchy data," *SIAM J. Imaging Sci.* 18(2), 2025. [arXiv:2503.00423](https://arxiv.org/abs/2503.00423)
 
-2. B. Jin, F. Wang, J. Zou, "A direct sampling method for simultaneously recovering inhomogeneous inclusions of different nature," *J. Comput. Phys.* 494, 2024. [arXiv:2403.06836](https://arxiv.org/abs/2403.06836)
+2. B. Jin, F. Wang, J. Zou, "A direct sampling method for simultaneously recovering inhomogeneous inclusions of different nature," *SIAM J. Sci. Comput.* 43(3), 2021. [arXiv:2005.05499](https://arxiv.org/abs/2005.05499)
 
 3. B. Jin, F. Wang, J. Zou, "A stable iterative direct sampling method for elliptic inverse problems with partial Cauchy data," *J. Comput. Phys.* 550, 2026. [arXiv:2511.08171](https://arxiv.org/abs/2511.08171)
 
