@@ -59,18 +59,16 @@ def circle_inclusion(x, y, center, radius):
 def make_conductivity_example1(mesh):
     """Create true conductivity for Example 1 (EIT).
 
-    Paper 1 Section 4.1:
-      sigma_0 = 1 (background), sigma = 0.3 (inside inclusions, i.e., u = -0.7)
+    FreeFEM Example1.edp L13-14:
+      cA = 1.0 (background), cB = 0.01 (inclusion, near-insulator).
       Two square inclusions:
         - center (0.4, 0.2), half-width 0.2
         - center (-0.5, -0.2), half-width 0.2
-
-    Ref: FreeFEM Example1.edp L22-23.
     """
     cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
 
     sigma_background = 1.0
-    sigma_inclusion = 0.3
+    sigma_inclusion = 0.01
 
     in_inclusion1 = square_inclusion(cx, cy, (0.4, 0.2), 0.2)
     in_inclusion2 = square_inclusion(cx, cy, (-0.5, -0.2), 0.2)

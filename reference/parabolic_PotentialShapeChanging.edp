@@ -1,0 +1,669 @@
+include "getARGV.idp"
+load "gsl";
+real tmp;
+real t1;
+real t2;
+
+real totalTime = getARGV("-totalTime", 10.31);
+real noiseLevel = getARGV("-noise", 0.05);
+string lowrank = getARGV("-lowrank", "BFG");
+real forwardDeltat = getARGV("-forwardTimeStep", 0.02);
+real deltaT = getARGV("-deltaT", 0.1);
+int deltaTsplit = getARGV("-deltaTsplit", 6);
+real inverseDeltat = deltaT/ real(deltaTsplit);
+int nSolve = getARGV("-nSolve", 200);
+int saveNum = getARGV("-saveNum", 10);
+real toleranceSave = getARGV("-tolerance", 0.08);
+real tolerance = toleranceSave;
+real forgetScale = getARGV("-forgetScale", 0.7);
+string givenName = getARGV("-givenName", "");
+int dataNum = getARGV("-dataNum", 1);
+real kappa = 1e10;
+
+int trajNum = 4;
+real vA = 1e-10;
+real vB = 15.0;
+real cA = 1.0;
+real cB = 1.0 + 1e-10;
+string type = "potential";
+
+int nCoarse = 80;
+
+verbosity = 0;
+macro Grad(u)[dx(u), dy(u)]//
+
+real lx = 1.0;
+real ly = 1.0;
+int nPlot = 1000;
+border bound(t=0,1){x = lx* cos(2* pi* t); y = ly* sin(2* pi* t); label = 1;};
+mesh ThFine = buildmesh(bound(int(nSolve* sqrt(2))));
+mesh Th = buildmesh(bound(nSolve));
+mesh Thplot = buildmesh(bound(nPlot));
+mesh ThCoarse = buildmesh(bound(nCoarse));
+func nx = x/ lx/ lx/ sqrt(x^2/ lx^2/ lx^2 + y^2/ ly^2/ ly^2);
+func ny = y/ ly/ ly/ sqrt(x^2/ lx^2/ lx^2 + y^2/ ly^2/ ly^2);
+
+func real[int] Traj(real t, int trajIndex){
+    real[int] result(2);
+    if(trajIndex == 0){
+        result(0) = 2.0;
+        result(1) = 2.0;
+    }
+    if(trajIndex == 1){
+        result(0) = 2.0;
+        result(1) = 2.0;
+    }
+    if(trajIndex == 2){
+        result(0) = -0.1;
+        result(1) = 0.5;
+    }
+    if(trajIndex == 3){
+        result(0) = 0.5;
+        result(1) = -0.25;
+    }
+    return result;
+}
+
+func real[int] Radiu(real t, int trajIndex){
+    real[int] result(2);
+    if(trajIndex == 0){
+        result(0) = 1e-10;
+        result(1) = 1e-10;
+    }
+    if(trajIndex == 1){
+        result(0) = 1e-10;
+        result(1) = 1e-10;
+    }
+    if(trajIndex == 2){
+        if(t < 6){
+            result(0) = 0.2;
+            result(1) = 0.2 + 0.15* sin(2* t* pi/ 24)* sin(2* t* pi/ 24);
+        }else{
+            result(0) = 0.2;
+            result(1) = 0.2 + 0.15* sin(2* 6* pi/ 24)* sin(2* 6* pi/ 24);
+        }
+    }
+    if(trajIndex == 3){
+        if(t < 6){
+            result(1) = 0.2;
+            result(0) = 0.2 + 0.15* sin(2* t* pi/ 24)* sin(2* t* pi/ 24);
+        }else{
+            result(1) = 0.2;
+            result(0) = 0.2 + 0.15* sin(2* 6* pi/ 24)* sin(2* 6* pi/ 24);
+        }
+    }
+    return result;
+}
+
+func real CFunc(real t){
+    real[int] circlePoint1(2), circlePoint2(2);
+    real[int] xyradiu1(2), xyradiu2(2);
+    circlePoint1 = Traj(t, 0);
+    circlePoint2 = Traj(t, 1);
+    xyradiu1 = Radiu(t, 0);
+    xyradiu2 = Radiu(t, 1);
+    real dis1 = sqrt((x - circlePoint1(0))^2/ xyradiu1(0)^2 + (y - circlePoint1(1))^2/ xyradiu1(1)^2);
+    real dis2 = sqrt((x - circlePoint2(0))^2/ xyradiu2(0)^2 + (y - circlePoint2(1))^2/ xyradiu2(1)^2);
+    real dis = min(dis1, dis2);
+    if(dis < 1){return cA;}else{return cA;}
+}
+
+func real VFunc(real t){
+    real[int] circlePoint1(2), circlePoint2(2);
+    real[int] xyradiu1(2), xyradiu2(2);
+    circlePoint1 = Traj(t, 2);
+    circlePoint2 = Traj(t, 3);
+    xyradiu1 = Radiu(t, 2);
+    xyradiu2 = Radiu(t, 3);
+    real dis1 = sqrt((x - circlePoint1(0))^2/ xyradiu1(0)^2 + (y - circlePoint1(1))^2/ xyradiu1(1)^2);
+    real dis2 = sqrt((x - circlePoint2(0))^2/ xyradiu2(0)^2 + (y - circlePoint2(1))^2/ xyradiu2(1)^2);
+    // real dis = min(dis1, dis2);
+    if(dis1 < 1){return vB;}
+    if(dis2 < 1){return vB;}
+    return vA;
+}
+
+func real RgSource(real t, int dataIndex){
+    if(dataIndex == 0){
+        return sin(t* pi/ 4)* 25* sin(3* x)* cos(4* y);
+    }
+    if(dataIndex == 1){
+        return sin(t* pi/ 4)* 25* cos(4* x)* sin(3* y);
+    }
+    if(dataIndex == 2){
+        return sin(t* pi/ 4)* 32* sin(4* x)* sin(4* y);
+    }
+}
+func real BdSource(real t, int dataIndex){
+    if(dataIndex == 0){
+        return cos(t* pi/ 6)* (3* cos(3* x)* cos(4* y)* nx - 4* sin(3* x)* sin(4* y)* ny);
+    }
+    if(dataIndex == 1){
+        return cos(t* pi/ 6)* (-4* sin(4* x)* sin(3* y)* nx + 3* cos(4* x)* cos(3* y)* ny);
+    }
+    if(dataIndex == 2){
+        return cos(t* pi/ 6)* (4* cos(4* x)* sin(4* y)* nx + 4* sin(4* x)* cos(4* y)* ny);
+    }
+}
+func real InitialData(int dataIndex){
+    if(dataIndex == 0){
+        return 3.0 + sin(3* x)* cos(4* y);
+    }
+    if(dataIndex == 1){
+        return 3.0 + cos(4* x)* sin(3* y);
+    }
+    if(dataIndex == 2){
+        return 3.0 + sin(4* x)* sin(4* y);
+    }
+}
+
+fespace P1fine(ThFine, P1);
+fespace P1solve(Th, P1);
+fespace P0solve(ThCoarse, P0);
+fespace PlotSpace(Thplot, P0);
+PlotSpace pic;
+
+func int plotSave(string filename, real t)
+{
+    ofstream file("./plotfile/" + filename + ".xyz");
+    file << Thplot.nv + trajNum* 500 << endl;
+    file << filename << endl;
+    for(int i = 0; i < Thplot.nv; i++)
+    {
+        file << 0 << " " << Thplot(i).x << " " << Thplot(i).y << " "
+             << 0 << " " << pic(Thplot(i).x, Thplot(i).y) << endl;
+    }
+
+    for(int trajIndex = 0; trajIndex < trajNum; trajIndex++)
+    {
+        real[int] circlePoint(2);
+        real[int] xyRadiu(2);
+        circlePoint = Traj(t, trajIndex);
+        xyRadiu = Radiu(t, trajIndex);
+        for(int i = 0; i < 500; i++)
+        {
+            file << (trajIndex + 1) << " " << circlePoint(0) + xyRadiu(0)* cos(2* pi* i/ real(200)) << " "
+                 << circlePoint(1) + xyRadiu(1)* sin(2* pi* i/ real(200)) << " "
+                << 1.0 << " " << 0.0 << endl;
+        }
+    }
+    return 0;
+}
+
+int forwardTimeStep = ceil(totalTime/ forwardDeltat) + 1;
+P1fine[int] yOmega(forwardTimeStep* dataNum);
+P1fine[int] yOmegaEmpty(forwardTimeStep* dataNum);
+P1solve[int] yData(forwardTimeStep* dataNum);
+for(int k = 0; k < dataNum; k++){
+    yOmega[0 + k* forwardTimeStep] = InitialData(k);
+    yOmegaEmpty[0 + k* forwardTimeStep] = InitialData(k);
+    yData[0 + k* forwardTimeStep] = InitialData(k);
+}
+t1 = clock();
+P1solve p1x = x, p1y = y;
+for(int k = 0; k < dataNum; k++){
+for(int tIndex = 0; tIndex < (forwardTimeStep - 1); tIndex++){
+    real timeNow = tIndex* forwardDeltat + 0.5* forwardDeltat;
+
+    P1fine unkown, p1test;
+    problem OriginalEquation(unkown, p1test)
+            = int2d(ThFine)(0.5* Grad(unkown)'* Grad(p1test)* CFunc(timeNow))
+            + int2d(ThFine)(0.5* Grad(yOmega[tIndex + k* forwardTimeStep])'* Grad(p1test)* CFunc(timeNow))
+            + int2d(ThFine)(0.5* unkown* p1test* VFunc(timeNow))
+            + int2d(ThFine)(0.5* yOmega[tIndex + k* forwardTimeStep]* p1test* VFunc(timeNow))
+            + int2d(ThFine)(unkown* p1test/ forwardDeltat)
+            - int2d(ThFine)(yOmega[tIndex + k* forwardTimeStep]* p1test/ forwardDeltat)
+            - int2d(ThFine)(RgSource(timeNow, k)* p1test)
+            - int1d(ThFine)(BdSource(timeNow, k)* p1test);
+    OriginalEquation;
+    yOmega[tIndex + 1 + k* forwardTimeStep] = unkown;
+
+    // problem EmptyEquation(unkown, p1test)
+    //         = int2d(ThFine)(0.5* Grad(unkown)'* Grad(p1test)* cA)
+    //         + int2d(ThFine)(0.5* Grad(yOmegaEmpty[tIndex + k* forwardTimeStep])'* Grad(p1test)* cA)
+    //         + int2d(ThFine)(0.5* unkown* p1test* vA)
+    //         + int2d(ThFine)(0.5* yOmegaEmpty[tIndex + k* forwardTimeStep]* p1test* vA)
+    //         + int2d(ThFine)(unkown* p1test/ forwardDeltat)
+    //         - int2d(ThFine)(yOmegaEmpty[tIndex + k* forwardTimeStep]* p1test/ forwardDeltat)
+    //         - int2d(ThFine)(RgSource(timeNow, k)* p1test)
+    //         - int1d(ThFine)(BdSource(timeNow, k)* p1test);
+    // EmptyEquation;
+    // yOmegaEmpty[tIndex + 1 + k* forwardTimeStep] = unkown;
+
+    real avg = int1d(ThFine)(yOmega[tIndex + 1 + k* forwardTimeStep])/ int1d(ThFine)(1.0);
+    for(int i = 0; i < P1solve.ndof; i++){
+        real noise = (2.0* randreal3() - 1.0)* noiseLevel;
+        real xpos = p1x[][i];
+        real ypos = p1y[][i];
+        yData[tIndex + 1 + k* forwardTimeStep][][i] = yOmega[tIndex + 1 + k* forwardTimeStep](xpos, ypos)
+        + noise* abs(yOmega[tIndex + 1 + k* forwardTimeStep](xpos, ypos) - 0.0);
+    }
+
+    if(tIndex % 20 == 0){
+        t2 = clock();
+        real allTime = dataNum* (t2 - t1)/ (timeNow/ totalTime + k);
+        cout<<"dataIndex: "<<k<<endl
+            <<"time: "<<timeNow<<"/ "<<totalTime<<endl
+            <<"time consumed: "<<(t2 - t1)/ 60.0<<" min"<<endl
+            <<"total time expected: "<<allTime/ 60.0<<" min."<<endl;
+    }
+}}
+
+func real[int] BoundaryData(real t, int dataIndex)
+{
+    real[int] result(P1solve.ndof);
+    int n1 = ceil(t/ forwardDeltat);
+    int n2 = floor(t/ forwardDeltat);
+    real lambda = (t/ forwardDeltat - n2);
+    // if(n1 % 2 == 1){n1 = n1 + 1;}
+    // if(n2 % 2 == 1){n2 = n2 - 1;}
+    // real lambda = (t/ forwardDeltat - n2)/ 2.0;
+
+    n1 += dataIndex* forwardTimeStep;
+    n2 += dataIndex* forwardTimeStep;
+    if(n1 != n2){
+        result = yData[n1][]* lambda + yData[n2][]* (1 - lambda);
+    }else{
+        result = yData[n1][];
+    }
+    return result;
+}
+
+real[int] diagFunc(P0solve.ndof* 2);
+{
+    P0solve p0x = x;
+    P0solve p0y = y;
+    for(int i = 0; i < P0solve.ndof; i++){
+        real xpos = p0x[][i];
+        real ypos = p0y[][i];
+        real minDis = 10.0;
+        for(int j = 0; j < 200; j++){
+            real dis = (lx* cos(j* 2* pi/ real(200)) - xpos)^2 + (lx* sin(j* 2* pi/ real(200)) - ypos)^2;
+            minDis = min(minDis, dis);
+        }
+        diagFunc(i + 0* P0solve.ndof) = minDis^0.7;
+        diagFunc(i + 1* P0solve.ndof) = minDis^0.7;
+        if(minDis < 0.01){
+            diagFunc(i + 0* P0solve.ndof) = 0.0;
+            diagFunc(i + 1* P0solve.ndof) = 0.0;
+        }
+    }
+}
+
+real[int, int] sStore(P0solve.ndof* 2, saveNum);
+real[int, int] yStore(P0solve.ndof* 2, saveNum);
+real[int, int] ryStore(P0solve.ndof* 2, saveNum);
+for(int j = 0; j < saveNum; j++){
+for(int i = 0; i < P0solve.ndof* 2; i++){
+    sStore(i, j) = 0.0;
+    yStore(i, j) = 0.0;
+    ryStore(i, j) = 0.0;
+}
+}
+
+int storeCount = 0;
+func real[int] Rsolver(real[int] &input)
+{
+    if(lowrank == "DFP")
+    {
+        real[int] result = input;
+        for(int i = 0; i < P0solve.ndof* 2; i++)
+        {
+            result(i) = result(i)* diagFunc(i);
+        }
+        for(int j = 0; j < min(storeCount, saveNum); j++)
+        {
+            real[int] sj = sStore(:, j);
+            real[int] yj = yStore(:, j);
+            real[int] ryj = ryStore(:, j);
+            if(sj'* yj > 0){
+                result = result + ((input'* sj)/(sj'* yj))* sj;
+                result = result - ((input'* ryj)/ (yj'* ryj))* ryj;
+            }
+        }
+        return result;
+    }
+    if(lowrank == "BFG")
+    {
+        real[int] result = input;
+        for(int i = 0; i < P0solve.ndof* 2; i++)
+        {
+            result(i) = result(i)* diagFunc(i);
+        }
+        for(int j = 0; j < min(storeCount, saveNum); j++)
+        {
+            real[int] sj = sStore(:, j);
+            real[int] yj = yStore(:, j);
+            real[int] ryj = ryStore(:, j);
+            if(sj'* yj > 0){
+                result = result + (1.0 + ((yj'* ryj)/ (sj'* yj)))*((input'* sj)/(sj'* yj))* sj;
+                result = result - ((input'* ryj)/(sj'* yj))* sj;
+                result = result - ((input'* sj)/(sj'* yj))* ryj;
+            }
+        }
+        return result;
+    }
+}
+
+varf Stiffness(u, v) = int2d(Th)(0.5* Grad(u)'* Grad(v)* cA)
+                     + int2d(Th)(0.5* u* v* vA)
+                     + int2d(Th)(u* v/ inverseDeltat);
+matrix Amatrix = Stiffness(P1solve, P1solve, solver = Cholesky, factorize = true);
+int inverseTimeNum = floor(totalTime/ deltaT);
+int countNum = 0;
+P1solve[int] yQGuess(inverseTimeNum* dataNum);
+for(int k = 0; k < dataNum; k++){
+    yQGuess[0 + k* inverseTimeNum] = InitialData(k);
+}
+{
+    ofstream file("./" + givenName + ".txt");
+    file << "";
+}
+P0solve[int] cGuess(inverseTimeNum), vGuess(inverseTimeNum);
+for(int tIndex = 0; tIndex < (inverseTimeNum - 1); tIndex++){
+    real timeBegin = tIndex* deltaT;
+    real timeEnd = timeBegin + deltaT;
+    cGuess[tIndex] = cA;
+    vGuess[tIndex] = vA;
+    real[int] Ainvb(P1solve.ndof);
+
+    P1solve[int] yLast(dataNum);
+    P1solve[int] yGuess(dataNum);
+    P1solve[int] yDual(dataNum);
+    P1solve[int] yEmpty(dataNum* (deltaTsplit + 1));
+    real[int] normalScale(dataNum);
+    for(int k = 0; k < dataNum; k++){
+        yLast[k] = yQGuess[tIndex + k* inverseTimeNum];
+        yEmpty[k* (deltaTsplit + 1) + 0] = yQGuess[tIndex + k* inverseTimeNum];
+        for(int j = 0; j < deltaTsplit; j++){
+            real timeNow = (tIndex + (j + 0.5)/real(deltaTsplit))* deltaT;
+            varf EmptyEquation(u, v) = int2d(Th)(yEmpty[k* (deltaTsplit + 1) + j]* v/ inverseDeltat)
+                                     + int2d(Th)(RgSource(timeNow, k)* v)
+                                     + int1d(Th)(BdSource(timeNow, k)* v)
+                                     - int2d(Th)(0.5* Grad(yEmpty[k* (deltaTsplit + 1) + j])'* Grad(v)* cA)
+                                     - int2d(Th)(0.5* yEmpty[k* (deltaTsplit + 1) + j]* v* vA);
+            real[int] bEmpty = EmptyEquation(0, P1solve);
+            Ainvb = Amatrix^-1* bEmpty;
+            yEmpty[k* (deltaTsplit + 1) + j + 1][] = Ainvb;
+        }
+        yGuess[k] = yEmpty[k* (deltaTsplit + 1) + deltaTsplit];
+
+        yDual[k] = 0.0;
+        normalScale[k] = 0.0;
+        for(int j = deltaTsplit; j > 0; j--){
+            real timeNow = (tIndex + (j - 0.5)/real(deltaTsplit))* deltaT;
+            P1solve measurement;
+            measurement[] = BoundaryData(timeNow, k);
+
+            measurement = 0.5* (yEmpty[k* (deltaTsplit + 1) + j] + yEmpty[k* (deltaTsplit + 1) + j - 1])
+                        - measurement;
+            normalScale[k] = normalScale[k] + int1d(Th)(measurement^2);
+
+            varf DualEquation(u, v) = int2d(Th)(yDual[k]* v/ inverseDeltat)
+                                    + int1d(Th)(measurement* v)
+                                    - int2d(Th)(0.5* Grad(yDual[k])'* Grad(v)* cA)
+                                    - int2d(Th)(0.5* yDual[k]* v* vA);
+            real[int] bDual = DualEquation(0, P1solve);
+            Ainvb = Amatrix^-1* bDual;
+            yDual[k][] = Ainvb;
+        }
+        normalScale[k] = 1/ (normalScale[k]);
+    }
+
+    int localLoop = 0;
+    while(true){
+        P0solve zetac = 0.0, zetav = 0.0;
+        for(int k = 0; k < dataNum; k++){
+            zetac = zetac + 0.5* (Grad(yGuess[k]) + Grad(yLast[k]))'* Grad(yDual[k])* normalScale[k];
+            zetav = zetav + 0.5* (yGuess[k] + yLast[k])* yDual[k]* normalScale[k];
+        }
+        real[int] zetaSum = [zetac[], zetav[]];
+        real[int] eta = Rsolver(zetaSum);
+
+        P0solve cGrad, vGrad;
+        [cGrad[], vGrad[]] = eta;
+        if(type == "double" || type == "conductivity"){
+            cGuess[tIndex] = max(min(cGrad, 0.0), -0.99/ abs(cA - cB))* abs(cA - cB) + cA;
+        }else{cGuess[tIndex] = cA;}
+        if(type == "double" || type == "potential"){
+            vGuess[tIndex] = max(min(vGrad, 2.0), 0.0)* abs(vA - vB) + vA;
+        }else{vGuess[tIndex] = vA;}
+
+        P0solve tildeZetac = 0.0, tildeZetav = 0.0;
+        P1solve[int] yDualTilde(dataNum);
+        real[int] normalScaleTilde(dataNum);
+        for(int k = 0; k < dataNum; k++){
+            P1solve[int] yU(deltaTsplit + 1);
+            yU[0] = yLast[k];
+            for(int j = 0; j < deltaTsplit; j++){
+                P1solve unkown, p1test;
+                real timeNow = (tIndex + (j + 0.5)/real(deltaTsplit))* deltaT;
+                P0solve cNow = cGuess[tIndex]; P0solve vNow = vGuess[tIndex];
+                if(tIndex != 0){
+                    cNow = cGuess[tIndex - 1]* (timeNow - timeBegin)/ (timeEnd - timeBegin)
+                         + cGuess[tIndex]* (timeNow - timeEnd)/ (timeBegin - timeEnd);
+                    vNow = vGuess[tIndex - 1]* (timeNow - timeBegin)/ (timeEnd - timeBegin)
+                         + vGuess[tIndex]* (timeNow - timeEnd)/ (timeBegin - timeEnd);
+                }
+                problem ForwardProblem(unkown, p1test)
+                        = int2d(Th)(0.5* Grad(unkown)'* Grad(p1test)* cNow)
+                        + int2d(Th)(0.5* Grad(yU[j])'* Grad(p1test)* cNow)
+                        + int2d(Th)(0.5* unkown* p1test* vNow)
+                        + int2d(Th)(0.5* yU[j]* p1test* vNow)
+                        + int2d(Th)(unkown* p1test/ inverseDeltat)
+                        - int2d(Th)(yU[j]* p1test/ inverseDeltat)
+                        - int2d(Th)(RgSource(timeNow, k)* p1test)
+                        - int1d(Th)(BdSource(timeNow, k)* p1test);
+                ForwardProblem;
+                yU[j + 1] = unkown;
+            }
+            countNum++;
+            yGuess[k] = yU[deltaTsplit];
+
+            yDualTilde[k] = 0.0;
+            normalScaleTilde[k] = 0.0;
+            for(int j = deltaTsplit; j > 0; j--){
+                real timeNow = (tIndex + (j - 0.5)/real(deltaTsplit))* deltaT;
+                P1solve measurement = 0.5* (yEmpty[k* (deltaTsplit + 1) + j]
+                                          + yEmpty[k* (deltaTsplit + 1) + j - 1])
+                                    - 0.5* (yU[j] + yU[j - 1]);
+                normalScaleTilde[k] = normalScaleTilde[k] + int1d(Th)(measurement^2);
+                varf DualEquation(u, v) = int2d(Th)(yDualTilde[k]* v/ inverseDeltat)
+                                        + int1d(Th)(measurement* v)
+                                        - int2d(Th)(0.5* Grad(yDualTilde[k])'* Grad(v)* cA)
+                                        - int2d(Th)(0.5* yDualTilde[k]'* v* vA);
+                real[int] bDual = DualEquation(0, P1solve);
+                Ainvb = Amatrix^-1* bDual;
+                yDualTilde[k][] = Ainvb;
+            }
+            normalScaleTilde[k] = 1/ (normalScaleTilde[k]);
+            tildeZetac = tildeZetac + 0.5* (Grad(yGuess[k]) + Grad(yLast[k]))'* Grad(yDualTilde[k])* normalScale[k];
+            tildeZetav = tildeZetav + 0.5* (yGuess[k] + yLast[k])* yDualTilde[k]* normalScale[k];
+        }
+
+        P0solve cErr = 0.0;
+        P0solve vErr = 0.0;
+        if(type == "double" || type == "conductivity"){
+            cErr = (cGuess[tIndex] - cA)/ abs(cB - cA);
+        }
+        if(type == "double" || type == "potential"){
+            vErr = (vGuess[tIndex] - vA)/ abs(vB - vA);
+        }
+
+        for(int i = 0; i < P0solve.ndof* 2; i++)
+        {
+            sStore(i, storeCount% saveNum) = 0.0;
+            ryStore(i, storeCount% saveNum) = 0.0;
+        }
+
+        if(localLoop == 0){
+            for(int j = 0; j < min(storeCount, saveNum); j++){
+            for(int i = 0; i < P0solve.ndof* 2; i++){
+                sStore(i, j) *= forgetScale;
+                ryStore(i, j) *= forgetScale;
+            }}
+        }
+
+        if(localLoop == 0 || storeCount == 0){
+        // if(true){
+            P0solve dykc, dykv;
+            for(int i = 0; i < P0solve.ndof; i++){
+                dykc[][i] = tildeZetac[][i]* diagFunc(i + 0* P0solve.ndof);
+                dykv[][i] = tildeZetav[][i]* diagFunc(i + 1* P0solve.ndof);
+            }
+            real scale1 = 0.0;
+            real scale2 = 0.0;
+            if(type == "double" || type == "conductivity"){
+                scale1 = int2d(Th)(abs(cErr))/ int2d(Th)(abs(dykc));
+            }
+            if(type == "double" || type == "potential"){
+                scale2 = int2d(Th)(abs(vErr))/ int2d(Th)(abs(dykv));
+            }
+
+            // real newScale = 1.0;
+            // for(int k = 0; k < dataNum; k++){
+            //     newScale = newScale* sqrt(normalScaleTilde[k]/ normalScale[k]);
+            // }
+            // newScale = newScale^(1/ real(dataNum));
+            // if(type == "double" || type == "conductivity"){
+            //     scale1 = newScale;
+            // }
+            // if(type == "double" || type == "potential"){
+            //     scale2 = newScale;
+            // }
+            if(scale1 != 0){
+                diagFunc(0* P0solve.ndof:1* P0solve.ndof) *= scale1;
+            }
+            if(scale2 != 0){
+                diagFunc(1* P0solve.ndof:2* P0solve.ndof) *= scale2;
+            }
+        }
+
+        real[int] yk = [tildeZetac[], tildeZetav[]];
+        real[int] ryk = Rsolver(yk);
+        for(int i = 0; i < P0solve.ndof; i++){
+            if(type == "double" || type == "conductivity"){
+                if(cErr[][i] == 0.0){
+                    cErr[][i] = max(ryk[0* P0solve.ndof + i], 0.0);
+                }
+                if(cErr[][i] == -0.99/ abs(cA - cB)){
+                    cErr[][i] = min(ryk[0* P0solve.ndof + i], -0.99/0.90);
+                }
+            }
+            if(type == "double" || type == "potential"){
+                if(vErr[][i] == 2.0){
+                    vErr[][i] = max(ryk[1* P0solve.ndof + i], 2.0);
+                }
+                if(vErr[][i] == 0.0){
+                    vErr[][i] = min(ryk[1* P0solve.ndof + i], 0.0);
+                }
+            }
+        }
+        real[int] sk = [cErr[], vErr[]];
+
+        if(sk'* yk > 0){
+            sStore(:, storeCount% saveNum) = sk;
+            yStore(:, storeCount% saveNum) = yk;
+            ryStore(:, storeCount% saveNum) = ryk;
+            storeCount++;
+        }
+
+        {
+            ofstream file("./" + givenName + ".txt", append);
+            real err = 0.0;
+            for(int k = 0; k < dataNum; k++){
+                P1solve measurement;
+                measurement[] = BoundaryData(timeEnd, k);
+                file<<tIndex<<" "<<localLoop<<" "
+                <<sqrt(int1d(Th)((yGuess[k] - measurement)^2))
+                /sqrt(int1d(Th)(measurement^2))<<" "
+                <<sqrt(int2d(Th)((yGuess[k] - measurement)^2))
+                /sqrt(int2d(Th)(measurement^2))
+                <<endl;
+                real errk = sqrt(int1d(Th)((yGuess[k] - measurement)^2))
+                /sqrt(int1d(Th)(measurement^2));
+                err = max(err, errk);
+            }
+            if(err < tolerance){tolerance = toleranceSave; break;}else{localLoop++;}
+            if(localLoop % saveNum == 0){storeCount = 0; tolerance *= 1.2;}
+        }
+    }
+    if(true){
+        P0solve zetac = 0.0, zetav = 0.0;
+        for(int k = 0; k < dataNum; k++){
+            zetac = zetac + 0.5* (Grad(yGuess[k]) + Grad(yLast[k]))'* Grad(yDual[k])* normalScale[k];
+            zetav = zetav + 0.5* (yGuess[k] + yLast[k])* yDual[k]* normalScale[k];
+        }
+        real[int] zetaSum = [zetac[], zetav[]];
+        real[int] eta = Rsolver(zetaSum);
+
+        P0solve cGrad, vGrad;
+        [cGrad[], vGrad[]] = eta;
+        if(type == "double" || type == "conductivity"){
+            cGuess[tIndex] = max(min(cGrad, 0.0), -0.99/ abs(cA - cB))* abs(cA - cB) + cA;
+        }else{cGuess[tIndex] = cA;}
+        if(type == "double" || type == "potential"){
+            vGuess[tIndex] = max(min(vGrad, 2.0), 0.0)* abs(vA - vB) + vA;
+        }else{vGuess[tIndex] = vA;}
+        for(int k = 0; k < dataNum; k++){
+            P1solve[int] yU(deltaTsplit + 1);
+            yU[0] = yLast[k];
+            for(int j = 0; j < deltaTsplit; j++){
+                P1solve unkown, p1test;
+                real timeNow = (tIndex + (j + 0.5)/real(deltaTsplit))* deltaT;
+                P0solve cNow = cGuess[tIndex]; P0solve vNow = vGuess[tIndex];
+                if(tIndex != 0){
+                    cNow = cGuess[tIndex - 1]* (timeNow - timeBegin)/ (timeEnd - timeBegin)
+                         + cGuess[tIndex]* (timeNow - timeEnd)/ (timeBegin - timeEnd);
+                    vNow = vGuess[tIndex - 1]* (timeNow - timeBegin)/ (timeEnd - timeBegin)
+                         + vGuess[tIndex]* (timeNow - timeEnd)/ (timeBegin - timeEnd);
+                }
+                P1solve diriData = BoundaryData(timeNow, k);
+                problem ForwardProblem(unkown, p1test)
+                        = int2d(Th)(0.5* Grad(unkown)'* Grad(p1test)* cNow)
+                        + int2d(Th)(0.5* Grad(yU[j])'* Grad(p1test)* cNow)
+                        + int2d(Th)(0.5* unkown* p1test* vNow)
+                        + int2d(Th)(0.5* yU[j]* p1test* vNow)
+                        + int2d(Th)(unkown* p1test/ inverseDeltat)
+                        - int2d(Th)(yU[j]* p1test/ inverseDeltat)
+                        - int2d(Th)(RgSource(timeNow, k)* p1test)
+                        + int1d(Th)(kappa* unkown* p1test)
+                        - int1d(Th)(kappa* diriData* p1test)
+                        - int1d(Th)(BdSource(timeNow, k)* p1test);
+                ForwardProblem;
+                yU[j + 1] = unkown;
+            }
+            yGuess[k] = yU[deltaTsplit];
+        }
+    }
+    for(int k = 0; k < dataNum; k++){
+        yQGuess[tIndex + 1 + k* inverseTimeNum] = yGuess[k];
+    }
+
+    {
+        ofstream file("./" + givenName + ".txt", append);
+        for(int k = 0; k < dataNum; k++){
+            P1solve measurement;
+            measurement[] = BoundaryData(timeEnd, k);
+            file<<tIndex<<" "<<-1<<" "
+            <<sqrt(int1d(Th)((yGuess[k] - measurement)^2))
+            /sqrt(int1d(Th)(measurement^2))<<" "
+            <<sqrt(int2d(Th)((yGuess[k] - measurement)^2))
+            /sqrt(int2d(Th)(measurement^2))
+            <<endl;
+        }
+    }
+
+    if(type == "double" || type == "conductivity"){
+        pic = cGuess[tIndex];
+        plotSave("PoteShap/" + givenName + "cGuess" + tIndex, timeEnd);
+    }
+    if(type == "double" || type == "potential"){
+        pic = vGuess[tIndex];
+        plotSave("PoteShap/" + givenName + "vGuess" + tIndex, timeEnd);
+    }
+}
+{
+    ofstream file("./" + givenName + ".txt", append);
+    file<<countNum<<endl;
+}

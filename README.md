@@ -33,6 +33,7 @@ which covers diffuse optical tomography (DOT, $\sigma=1$, recover $q$) and simul
 | **DSM** (Direct Sampling) | Paper 1, Section 2.2 | Single-pass indicator via Green's function correlation |
 | **IDSM** (Full Data) | Paper 1, Algorithm 3.2 | Iterative refinement with regularized DtN map + quasi-Newton |
 | **IDSM** (Partial Data) | Paper 3, Algorithm 5.1 | Data completion + HR-DtN + stabilization-correction |
+| **IDSM** (Parabolic) | Paper 2, Algorithm 4.1 | Time-segmented inversion of moving inclusions via backward adjoint |
 
 ## Installation
 
@@ -64,7 +65,7 @@ cd IDSM/notebooks
 jupyter notebook 01_forward_problem.ipynb   # Phase 1: FEM, mesh, forward solver
 ```
 
-The four notebooks are designed to be followed in order:
+The five notebooks are designed to be followed in order:
 
 | Notebook | Content | Approx. Time |
 |----------|---------|--------------|
@@ -72,6 +73,7 @@ The four notebooks are designed to be followed in order:
 | `02_classical_dsm.ipynb` | Laplace-Beltrami, DSM indicator, limitations | ~2 min |
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
+| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), moving inclusions, CN time stepping | ~3 min |
 
 Alternatively, you can use the package API directly:
 
@@ -111,12 +113,14 @@ IDSM/
     dsm.py               # Classical DSM (Laplace-Beltrami, indicator)
     idsm.py              # Full-data IDSM (Algorithm 3.2)
     idsm_partial.py      # Partial-data IDSM (Algorithm 5.1)
+    idsm_parabolic.py    # Parabolic IDSM (Algorithm 4.1, Paper 2)
     utils.py             # Visualization, distance, IoU metrics
   notebooks/
     01_forward_problem.ipynb     # Phase 1: FEM, mesh, forward solver
     02_classical_dsm.ipynb       # Phase 2: DSM baseline
     03_iterative_dsm.ipynb       # Phase 3: IDSM with DtN map
     04_comparative_study.ipynb   # Phase 4: Full comparison
+    05_parabolic_idsm.ipynb      # Phase 5: Parabolic IDSM (moving inclusions)
   tests/
     test_mesh.py             # Mesh area, boundary, coarsening
     test_fem.py              # Stiffness symmetry, mass, Neumann solver
@@ -168,6 +172,16 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `apply_hr_dtn(mesh, v, A_op, alpha_d, alpha_n, ...)` -- Heterogeneous DtN (Eq. 4.2)
 - `StabilizedLowRankResolver` -- Stabilization-correction scheme (Eq. 4.10-4.16)
 
+### `src/idsm_parabolic.py` (Paper 2: arXiv:2511.08197)
+- `run_idsm_parabolic(mesh, y_data, forward_dt, f_func, g_func, init, cfg, ...)` -- Algorithm 4.1, time-segmented IDSM for moving inclusions
+- `solve_forward_parabolic_segment(...)` -- Crank-Nicolson forward solver per segment
+- `solve_backward_adjoint_segment(...)` -- Backward adjoint PDE (Eq. 4.1) with terminal condition
+- `compute_local_dual(mesh, y_hist, z_hist, normal_scale)` -- Time-integrated $\zeta_c$ and $\zeta_v$ (Eq. 4.2-4.4)
+- `apply_inclusion_projection(eta, n_tri, model, cA, cB, vA, vB)` -- Box projection per model type
+- `damp_lowrank_state(R, forget_scale)` -- Inter-segment forgetScale damping
+- `inclusion_trajectory_example1(t)` / `inclusion_trajectory_example4(t)` -- Truth trajectories (Examples 5.1, 5.4)
+- `ParabolicConfig` -- Parabolic IDSM hyperparameters (defaults match `parabolic_*.edp`)
+
 ### `src/dsm.py`
 - `compute_dsm_indicator(mesh, cauchy_data, gamma, ...)` -- DSM indicator $\eta(x)$ (Eq. 2.8)
 - `discretize_laplace_beltrami(mesh, gamma)` -- $(-\Delta_\Gamma)^\gamma$ eigendecomposition
@@ -207,6 +221,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 | `02_classical_dsm.ipynb` | 2 | Laplace-Beltrami eigenproblem, DSM indicator, gamma parameter, limitations |
 | `03_iterative_dsm.ipynb` | 3 | Regularized DtN map, Algorithm 3.2, DFP/BFG, convergence analysis |
 | `04_comparative_study.ipynb` | 4 | DSM vs IDSM, partial data, damping factor, ablation, noise sweep |
+| `05_parabolic_idsm.ipynb` | 5 | Crank-Nicolson forward, backward adjoint (Eq. 4.1), Algorithm 4.1, Example 5.1 |
 
 ## Configuration
 
@@ -253,7 +268,11 @@ A: Yes. Set `IDSM_FEM_LEGACY=1` as an environment variable. The adapter layer in
 
 3. B. Jin, F. Wang, J. Zou, "A stable iterative direct sampling method for elliptic inverse problems with partial Cauchy data," *J. Comput. Phys.* 550, 2026. [arXiv:2511.08171](https://arxiv.org/abs/2511.08171)
 
-**FreeFEM reference code**: [github.com/RaulWangfr/IDSM-elliptic](https://github.com/RaulWangfr/IDSM-elliptic)
+4. B. Jin, F. Wang, J. Zou, "An iterative direct sampling method for reconstructing moving inhomogeneities in parabolic problems," 2025. [arXiv:2511.08197](https://arxiv.org/abs/2511.08197)
+
+**FreeFEM reference code**:
+- Elliptic: [github.com/RaulWangfr/IDSM-elliptic](https://github.com/RaulWangfr/IDSM-elliptic)
+- Parabolic: [github.com/RaulWangfr/IDSM-parabolic](https://github.com/RaulWangfr/IDSM-parabolic)
 
 ## License
 

@@ -213,17 +213,65 @@ def generate_sampling_grid(n_grid=201, domain='ellipse'):
     grid_y : array (n_grid,)
     mask : array (n_grid, n_grid), bool — interior mask
     """
-    grid_x = np.linspace(-1.0, 1.0, n_grid)
-    grid_y = np.linspace(-0.8, 0.8, n_grid)
+    if domain == 'disk':
+        grid_x = np.linspace(-1.0, 1.0, n_grid)
+        grid_y = np.linspace(-1.0, 1.0, n_grid)
+    else:
+        grid_x = np.linspace(-1.0, 1.0, n_grid)
+        grid_y = np.linspace(-0.8, 0.8, n_grid)
     X, Y = np.meshgrid(grid_x, grid_y, indexing='xy')
 
     if domain == 'ellipse':
         mask = X ** 2 + Y ** 2 / 0.64 < 1.0
+    elif domain == 'disk':
+        mask = X ** 2 + Y ** 2 < 1.0
     else:
         mask = np.ones_like(X, dtype=bool)
 
     grid_points = np.column_stack([X[mask], Y[mask]])
     return grid_points, grid_x, grid_y, mask
+
+
+def generate_disk_mesh(n_boundary=80, max_area=None):
+    """Generate a triangular mesh for the unit disk Ω = {x₁² + x₂² < 1}.
+
+    Reference: parabolic_*.edp (FreeFEM) line 39:
+      border bound(t=0,1){x = lx*cos(2*pi*t); y = ly*sin(2*pi*t); label=1};
+      mesh Th = buildmesh(bound(nSolve));    // nSolve = 80 default
+
+    Parameters
+    ----------
+    n_boundary : int
+        Number of boundary nodes (Phase 5 reference value: nSolve=80).
+    max_area : float or None
+        Maximum triangle area constraint. If None, estimated from boundary spacing.
+
+    Returns
+    -------
+    EllipticMesh
+        Reuses the EllipticMesh class (same P1 geometry mechanics).
+    """
+    t_vals = np.linspace(0, 2 * np.pi, n_boundary, endpoint=False)
+    boundary_points = np.column_stack([np.cos(t_vals), np.sin(t_vals)])
+
+    info = triangle.MeshInfo()
+    info.set_points(boundary_points.tolist())
+
+    facets = [(i, (i + 1) % n_boundary) for i in range(n_boundary)]
+    info.set_facets(facets)
+
+    if max_area is None:
+        avg_edge_len = 2.0 * np.pi / n_boundary
+        max_area = 0.5 * avg_edge_len ** 2
+
+    mesh_data = triangle.build(info, max_volume=max_area, min_angle=25)
+
+    points = np.array(mesh_data.points)
+    triangles = np.array(mesh_data.elements)
+
+    boundary_edges = _extract_boundary_edges(triangles)
+
+    return EllipticMesh(points, triangles, boundary_edges)
 
 
 def generate_coarse_mesh(target_triangles=1770, n_boundary=220):

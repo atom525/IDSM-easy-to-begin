@@ -280,10 +280,105 @@ def compute_iou_from_grid(mesh, u_true, indicator_grid, mask):
 
 # Inclusion box markers for Example 1
 EXAMPLE1_BOXES = [
-    {'center': (0.4, 0.2), 'half_width': 0.2, 'color': 'w'},
-    {'center': (-0.5, -0.2), 'half_width': 0.2, 'color': 'w'},
+    {'center': (0.4, 0.2), 'half_width': 0.2, 'color': 'lime'},
+    {'center': (-0.5, -0.2), 'half_width': 0.2, 'color': 'lime'},
 ]
 
 SINGLE_INCLUSION_CIRCLE = [
-    {'center': (0.3, 0.0), 'radius': 0.25, 'color': 'w'},
+    {'center': (0.3, 0.0), 'radius': 0.25, 'color': 'lime'},
 ]
+
+
+# ============================================================
+# 统一可视化规范 (Phase 1-5 共用)
+# ============================================================
+# 统一 colormap 选择
+CMAP_SIGMA = 'RdBu_r'        # 导电率重建：红=高(背景), 蓝=低(inclusion)
+CMAP_INDICATOR = 'hot_r'     # DSM/IDSM η ∈ [0,1] 指示器
+CMAP_FORWARD = 'RdBu_r'      # 前向解 y(x)
+CMAP_POTENTIAL = 'viridis'   # 势 V 重建
+CMAP_CLASSIFY = 'Greys'      # 分类二值图
+
+# 统一 colormap 数值范围 (Example 1: cA=1.0 背景, cB=0.01 inclusion, 与 .edp 一致)
+SIGMA_VMIN_EX1 = 0.01  # = cB
+SIGMA_VMAX_EX1 = 1.0   # = cA
+# Partial / Example 2 high-contrast (cB=0.01 极弱导电):
+SIGMA_VMIN_EX2 = 0.01
+SIGMA_VMAX_EX2 = 1.0
+# 势重建 (Example 3: vA=1, vB=30):
+V_VMIN = 1.0
+V_VMAX = 30.0
+# 指示器范围
+ETA_VMIN = 0.0
+ETA_VMAX = 1.0
+
+# 真值 inclusion 框样式 (绿色加粗)
+TRUTH_RECT_KW = dict(linewidth=2.5, edgecolor='lime', facecolor='none')
+TRUTH_CIRCLE_KW = dict(linewidth=2.5, edgecolor='lime', facecolor='none')
+
+
+def add_truth_boxes(ax, boxes, kw=None):
+    """在 ax 上画真值 inclusion 框（统一 lime 2.5 样式）。
+
+    boxes : list of {'center': (cx,cy), 'half_width': hw, ...}
+    """
+    if kw is None:
+        kw = TRUTH_RECT_KW
+    for box in boxes:
+        cx, cy = box['center']
+        hw = box['half_width']
+        rect = plt.Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, **kw)
+        ax.add_patch(rect)
+
+
+def add_truth_circles(ax, circles, kw=None):
+    """在 ax 上画真值圆形 inclusion (Phase 5 抛物 / 单圆例)。
+
+    circles : list of {'center': (cx,cy), 'radius': r, ...}
+    """
+    if kw is None:
+        kw = TRUTH_CIRCLE_KW
+    for c in circles:
+        cx, cy = c['center']
+        r = c['radius']
+        circ = plt.Circle((cx, cy), r, **kw)
+        ax.add_patch(circ)
+
+
+def plot_sigma_reconstruction(ax, mesh, sigma, vmin=SIGMA_VMIN_EX1,
+                               vmax=SIGMA_VMAX_EX1, boxes=None, title=None,
+                               show_colorbar=True):
+    """统一 σ 重建可视化（在指定 ax 上）。
+
+    返回 (im, cbar)。cbar 为 None 时未画。
+    """
+    triang = mtri.Triangulation(mesh.points[:, 0], mesh.points[:, 1],
+                                  mesh.triangles)
+    im = ax.tripcolor(triang, facecolors=sigma, cmap=CMAP_SIGMA,
+                       vmin=vmin, vmax=vmax)
+    if boxes is not None:
+        add_truth_boxes(ax, boxes)
+    ax.set_aspect('equal')
+    if title is not None:
+        ax.set_title(title)
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046) if show_colorbar else None
+    return im, cbar
+
+
+def plot_indicator_grid(ax, eta, extent=(-1, 1, -0.8, 0.8), vmin=ETA_VMIN,
+                         vmax=ETA_VMAX, title=None, boxes=None,
+                         show_colorbar=True):
+    """统一 DSM/IDSM 指示器（grid）可视化。
+
+    eta : 2D array on uniform grid
+    extent : (xmin, xmax, ymin, ymax) 用于 imshow 坐标
+    """
+    im = ax.imshow(eta, extent=extent, origin='lower',
+                    cmap=CMAP_INDICATOR, vmin=vmin, vmax=vmax,
+                    aspect='equal')
+    if boxes is not None:
+        add_truth_boxes(ax, boxes)
+    if title is not None:
+        ax.set_title(title)
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046) if show_colorbar else None
+    return im, cbar

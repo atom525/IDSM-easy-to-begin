@@ -79,6 +79,25 @@ The partial-data extension implements Algorithm 5.1 from Jin et al. (2026):
 
 ---
 
+### 2.5 Parabolic IDSM (Phase 5)
+
+The parabolic extension implements Algorithm 4.1 from Jin–Wang–Zou (2025, arXiv:2511.08197), reconstructing time-dependent moving inclusions $u(x, t)$ from boundary observations $y_s^d(x, t)$ on $\Gamma \times (0, T]$.
+
+**Forward PDE** (Eq. 2.1–2.3):
+$$\partial_t y - \Delta y + N(y)\,u = f, \qquad \partial_n y = g, \qquad y(\cdot, 0) = h,$$
+where $N$ encodes conductivity ($-\nabla\cdot(u\nabla y)$), potential ($u\,y$), or a double / non-linear mix.
+
+**Three structural differences from the elliptic case:**
+1. **Time segmentation** — the interval $(0, T]$ is split into $n$ segments of length $\delta t$; on each, a backward adjoint $z^n$ replaces the elliptic double-Robin DtN map.
+2. **Backward adjoint PDE** (Eq. 4.1): $-\partial_t z - \Delta z = 0$ with terminal condition $z(\cdot, (n+1)\delta t) = 0$ and Neumann data given by the residual $y_s^{n,d} - y_\emptyset^n$.
+3. **Inter-segment forgetScale damping** $\lambda \in (0, 1)$ on the low-rank state, plus a Dirichlet-penalty hand-off of $y$ between segments to track inclusion motion.
+
+**Time discretization:** Crank–Nicolson is A-stable, symmetric, and reuses the FEM mass / stiffness assembly of the elliptic backend (`fem_skfem`). The CN operator $A = M/\Delta t + \tfrac{1}{2}K(\sigma) + \tfrac{1}{2}M_v$ is symmetric positive definite (verified in `tests/test_idsm_parabolic.py::test_cn_operator_symmetric_positive`).
+
+**Module:** `idsm_parabolic.py`. Notebook 05 demonstrates Example 5.1 (`ConductivityMerging`) on a unit-disk mesh with 12 segments at $T = 2.4$, BFG low-rank, $\lambda = 0.7$.
+
+---
+
 ## 3. Implementation Challenges
 
 ### 3.1 Numerical Stability of the DtN Map
@@ -149,6 +168,16 @@ The breakthrough came from a careful comparison between FreeFEM `Example1.edp` (
 The other four bugs were: (1) the `pot_exponent` parameter for Example 3 (DOT) was hardcoded to 0.0 instead of 1.5, making the potential channel's preconditioner a constant; (2) the first-iteration scaling was applied after storing the low-rank correction (should be before); (3) conductivity and potential blocks were scaled jointly instead of separately; (4) the cross-term formula mixed incompatible singularity types.
 
 **Lessons**: When a reference implementation doesn't match the paper, trust the code for numerics and the paper for theory. Magnitude checks are the fastest diagnostic — if D values are off by 100x, something is structurally wrong. The order of operations in quasi-Newton methods is not commutative: scale-then-store ≠ store-then-scale.
+
+### 3.10 Parabolic-Specific Challenges
+
+Three failure modes emerged when porting the algorithm from elliptic to parabolic:
+
+1. **Backward-PDE direction confusion** — Eq. 4.1 specifies a *terminal* condition $z(\cdot, (n+1)\delta t) = 0$, not an initial one. We solve it forward in $\tau = (n+1)\delta t - t$ to keep CN's mass-matrix stencil unchanged; the terminal condition becomes $z(\tau{=}0) = 0$. A unit test (`test_backward_terminal_condition_is_zero`) checks the final entry of the saved trajectory equals 0.
+
+2. **Inter-segment damping breaking PSD** — naive damping $R \mapsto \lambda R$ on a stored DFP/BFG quasi-Newton operator can violate symmetric positive-semi-definiteness if $s$- and $y$-vectors are scaled inconsistently. The fix (per FreeFEM `parabolic_*.edp`) is to scale only the secant pair $s$ and the residual $ry$ by $\lambda$, leaving $y$ untouched. This preserves $s^T y > 0$ and the PSD quadratic form, verified in `test_lowrank_psd_preserved_after_damping`.
+
+3. **Synthetic-data interpolation mismatch** — observation snapshots are stored at `forward_dt` resolution (e.g., 0.05 s), while inner CN substeps may need `inverse_dt` ≈ 0.067 s. We linearly interpolate boundary residuals via `interpolate_boundary_data`, with end-point clamping to avoid extrapolation artefacts.
 
 ---
 
@@ -497,5 +526,5 @@ Regression tests in `tests/test_fem_regression.py` (11 cases) verify numerical a
 ## References
 
 1. Ito, K., Jin, B., Wang, F., & Zou, J. (2025). Iterative direct sampling method for elliptic inverse problems with limited Cauchy data. *SIAM J. Imaging Sci.*, 18(2), 1284–1313. [arXiv:2503.00423]
-2. Jin, B., Wang, F., & Zou, J. (2025). An iterative direct sampling method for reconstructing moving inhomogeneities in parabolic problems. Preprint. [arXiv:2505.06406]
+2. Jin, B., Wang, F., & Zou, J. (2025). An iterative direct sampling method for reconstructing moving inhomogeneities in parabolic problems. Preprint. [arXiv:2511.08197]
 3. Jin, B., Wang, F., & Zou, J. (2026). A stable iterative direct sampling method for elliptic inverse problems with partial Cauchy data. *J. Comput. Phys.*, 550, 114642. [arXiv:2511.08171]
