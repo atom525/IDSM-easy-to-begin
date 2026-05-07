@@ -1,0 +1,15 @@
+# Table 1 — PDE Solve Counts per Segment / IoU 汇总
+# 单元格：mean_inner = 平均内迭代步数；PDE/seg = 每段 PDE solve 估算
+
+Example    mode   inner_mean  PDE/seg  n_seg  IoU_mean  IoU_max  runtime
+5_1        paper        1.20      5.4    102     0.173    0.450    28.3s
+5_1        edp         17.43     37.9    102     0.100    0.370   123.1s
+5_1_n10    paper        1.60      6.2    102     0.116    0.463    29.9s
+5_2        paper        1.17      5.3    103     0.267    0.572    36.6s
+5_2        edp          4.53     12.1    103     0.238    0.533    63.2s
+5_3        paper        4.20     11.4      5     0.000    0.000     2.3s
+5_3        edp         29.00     61.0      5     0.000    0.000     9.4s
+5_4        paper        2.10      7.2    103     1.000    1.000    33.2s
+5_4        edp          1.50      6.0    103     1.000    1.000    29.6s
+5_5        paper        1.00      5.0     53     0.296    0.599    13.7s
+5_5        edp          1.00      5.0     53     0.282    0.592    13.7s

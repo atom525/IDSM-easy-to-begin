@@ -1,0 +1,33 @@
+
+[5.1 ConductivityMerging | paper | noise=0.05] total_time=10.21 tol=0.1 max_inner=5 forget=0.6 lowrank=BFG
+  mesh: fine 3187 tri / coarse 1566 tri
+  done in 28.5s, segments=102
+  IoU max=0.4500@6 final=0.1508 mean_last20=0.1212  n_inner mean=1.20
+  → /data1/liulingfeng/cooperation/ghy/IDSM/results/parabolic/ex_5_1_paper.npz
+
+[5.2 MixedMoving | paper | noise=0.05] total_time=10.31 tol=0.1 max_inner=5 forget=0.6 lowrank=DFP
+  mesh: fine 3187 tri / coarse 1566 tri
+  done in 36.4s, segments=103
+  IoU max=0.5718@100 final=0.4343 mean_last20=0.3622  n_inner mean=1.17
+  → /data1/liulingfeng/cooperation/ghy/IDSM/results/parabolic/ex_5_2_paper.npz
+
+[5.3 Nonlinear | paper | noise=0.05] total_time=0.51 tol=0.1 max_inner=5 forget=0.6 lowrank=BFG
+  mesh: fine 3187 tri / coarse 1566 tri
+  done in 3.3s, segments=5
+  IoU max=0.0000@0 final=0.0000 mean_last20=0.0000  n_inner mean=5.00
+  → /data1/liulingfeng/cooperation/ghy/IDSM/results/parabolic/ex_5_3_paper.npz
+
+[5.4 PotentialFading | paper | noise=0.05] total_time=10.31 tol=0.1 max_inner=5 forget=0.6 lowrank=BFG
+  mesh: fine 3187 tri / coarse 1566 tri
+  done in 32.9s, segments=103
+  IoU max=0.5317@2 final=0.0000 mean_last20=0.1654  n_inner mean=2.10
+  → /data1/liulingfeng/cooperation/ghy/IDSM/results/parabolic/ex_5_4_paper.npz
+
+[5.5 ConductivityDiminishing | paper | noise=0.05] total_time=5.31 tol=0.1 max_inner=5 forget=0.6 lowrank=DFP
+  mesh: fine 3187 tri / coarse 1566 tri
+  done in 13.6s, segments=53
+  IoU max=0.5987@18 final=0.1839 mean_last20=0.3087  n_inner mean=1.00
+  → /data1/liulingfeng/cooperation/ghy/IDSM/results/parabolic/ex_5_5_paper.npz
+
+=========== ALL DONE in 115.1s ===========
+summary -> logs/run_all_examples_summary.json
