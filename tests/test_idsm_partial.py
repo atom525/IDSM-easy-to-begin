@@ -3,19 +3,19 @@
 import numpy as np
 import pytest
 
-from IDSM.src.forward_solver import generate_cauchy_data, make_conductivity_example1
-from IDSM.src.idsm_partial import (
+from cooperation.ghy.IDSM.src.forward_solver import generate_cauchy_data, make_conductivity_example1
+from cooperation.ghy.IDSM.src.idsm_partial import (
     apply_hr_dtn,
     complete_data,
     define_accessible_boundary,
     run_idsm_partial,
 )
-from IDSM.src.fem import (
+from cooperation.ghy.IDSM.src.fem import (
     assemble_mass_matrix,
     assemble_partial_boundary_mass_matrix,
     assemble_stiffness_matrix,
 )
-from IDSM.src.mesh import generate_elliptic_mesh
+from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
 
 
 @pytest.fixture

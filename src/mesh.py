@@ -334,3 +334,34 @@ def coarse_to_fine_p0(fine_mesh, coarse_mesh, coarse_values):
     tree = cKDTree(coarse_mesh.centroids)
     _, nearest = tree.query(fine_mesh.centroids, k=1)
     return coarse_values[nearest]
+
+
+def generate_disk_mesh_paper(target_triangles: int = 7002,
+                              n_boundary: int | None = None):
+    """单位圆网格 — 论文 §5 标准 (arXiv:2511.08197).
+
+    论文 §5 (p.13): "We use two meshes T_f (fine, ~7002 elements) and
+    T_c (coarse, ~1120 elements) on the unit disk Ω = {x²+y² < 1}."
+
+    根据目标三角形数 target 反推 max_area = π / target，
+    并由平均边长 h ≈ √(2·max_area/√3) 推 n_boundary = 2π / h。
+
+    Parameters
+    ----------
+    target_triangles : int
+        论文 7002 (fine) 或 1120 (coarse)。
+    n_boundary : int | None
+        显式覆盖时使用；None 则按 target 自动推。
+
+    Returns
+    -------
+    EllipticMesh — 单位圆 P1 mesh，复用 EllipticMesh 类（几何机制等价）。
+    """
+    # triangle 库 max_volume 是上限，实际平均面积 ~ max_volume/1.55
+    # 经验校准：target=7002 → fudge=1.55 时实际 ~7000
+    fudge = 1.55
+    max_area = np.pi / float(max(target_triangles, 1)) * fudge
+    if n_boundary is None:
+        h = np.sqrt(4.0 * max_area / np.sqrt(3.0))
+        n_boundary = max(int(np.ceil(2.0 * np.pi / h)), 60)
+    return generate_disk_mesh(n_boundary=n_boundary, max_area=max_area)

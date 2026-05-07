@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from IDSM.src.mesh import generate_elliptic_mesh
-from IDSM.src.utils import (
+from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
+from cooperation.ghy.IDSM.src.utils import (
     distance_to_boundary,
     compute_iou,
     p0_to_grid,

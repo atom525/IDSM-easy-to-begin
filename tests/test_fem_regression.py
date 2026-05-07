@@ -7,9 +7,9 @@ and assert results agree to machine precision.
 import numpy as np
 import pytest
 
-from IDSM.src.mesh import generate_elliptic_mesh
-from IDSM.src import fem_skfem as skfem
-from IDSM.src import fem_legacy as legacy
+from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
+from cooperation.ghy.IDSM.src import fem_skfem as skfem
+from cooperation.ghy.IDSM.src import fem_legacy as legacy
 
 
 @pytest.fixture

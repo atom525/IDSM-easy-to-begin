@@ -73,7 +73,7 @@ The five notebooks are designed to be followed in order:
 | `02_classical_dsm.ipynb` | Laplace-Beltrami, DSM indicator, limitations | ~2 min |
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
-| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), moving inclusions, CN time stepping | ~3 min |
+| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), Paper §5 Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) | ~3 min |
 
 Alternatively, you can use the package API directly:
 
@@ -173,8 +173,11 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `StabilizedLowRankResolver` -- Stabilization-correction scheme (Eq. 4.10-4.16)
 
 ### `src/idsm_parabolic.py` (Paper 2: arXiv:2511.08197)
-- `run_idsm_parabolic(mesh, y_data, forward_dt, f_func, g_func, init, cfg, ...)` -- Algorithm 4.1, time-segmented IDSM for moving inclusions
-- `solve_forward_parabolic_segment(...)` -- Crank-Nicolson forward solver per segment
+- `run_idsm_parabolic(coarse_mesh, y_data, forward_dt, f_func, g_func, initial_data, cfg, ...)` -- Algorithm 4.1, time-segmented IDSM for moving inclusions; auto-dispatches to σ/V double-field or U-recovery single-field path via `cfg.model`
+- `solve_forward_parabolic_segment(...)` -- Crank–Nicolson forward solver per segment (linear σ + V)
+- `solve_forward_segment_nonlinear(...)` -- Newton + Crank–Nicolson solver for §5.3 nonlinear $|y|y\cdot U$ source
+- `iterate_segment_nonlinear(...)` -- U-recovery inner loop (single-field P0 reconstruction projected to $[u_A, 2u_B]$)
+- `edp_cfg_example_5_{1..5}(noise=...)` -- Paper §5 Examples 5.1–5.5 configurations matched to FreeFEM `parabolic_*.edp`
 - `solve_backward_adjoint_segment(...)` -- Backward adjoint PDE (Eq. 4.1) with terminal condition
 - `compute_local_dual(mesh, y_hist, z_hist, normal_scale)` -- Time-integrated $\zeta_c$ and $\zeta_v$ (Eq. 4.2-4.4)
 - `apply_inclusion_projection(eta, n_tri, model, cA, cB, vA, vB)` -- Box projection per model type
@@ -268,7 +271,7 @@ A: Yes. Set `IDSM_FEM_LEGACY=1` as an environment variable. The adapter layer in
 
 3. B. Jin, F. Wang, J. Zou, "A stable iterative direct sampling method for elliptic inverse problems with partial Cauchy data," *J. Comput. Phys.* 550, 2026. [arXiv:2511.08171](https://arxiv.org/abs/2511.08171)
 
-4. B. Jin, F. Wang, J. Zou, "An iterative direct sampling method for reconstructing moving inhomogeneities in parabolic problems," 2025. [arXiv:2511.08197](https://arxiv.org/abs/2511.08197)
+4. B. Jin, F. Wang, J. Zou, "An iterative direct sampling method for reconstructing moving inhomogeneities in parabolic problems," 2025. [arXiv:2505.06406](https://arxiv.org/abs/2505.06406)
 
 **FreeFEM reference code**:
 - Elliptic: [github.com/RaulWangfr/IDSM-elliptic](https://github.com/RaulWangfr/IDSM-elliptic)

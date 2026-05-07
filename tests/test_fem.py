@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from IDSM.src.fem import (
+from cooperation.ghy.IDSM.src.fem import (
     assemble_boundary_load,
     assemble_boundary_mass_matrix,
     assemble_boundary_mean_constraint,
@@ -11,7 +11,7 @@ from IDSM.src.fem import (
     assemble_stiffness_matrix,
     solve_neumann_system,
 )
-from IDSM.src.mesh import generate_elliptic_mesh
+from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
 
 
 @pytest.fixture

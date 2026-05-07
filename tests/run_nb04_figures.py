@@ -16,9 +16,9 @@ from matplotlib.patches import Rectangle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.config import Notebook04Config, RuntimeConfig
-from src.mesh import generate_elliptic_mesh
-from src.forward_solver import (
+from cooperation.ghy.IDSM.src.config import Notebook04Config, RuntimeConfig
+from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
+from cooperation.ghy.IDSM.src.forward_solver import (
     make_conductivity_example1,
     make_conductivity_conductive,
     make_conductivity_single,
@@ -28,13 +28,13 @@ from src.forward_solver import (
     generate_cauchy_data_general,
     solve_forward,
 )
-from src.dsm import compute_dsm_indicator
-from src.idsm import run_idsm
-from src.idsm_partial import (
+from cooperation.ghy.IDSM.src.dsm import compute_dsm_indicator
+from cooperation.ghy.IDSM.src.idsm import run_idsm
+from cooperation.ghy.IDSM.src.idsm_partial import (
     define_accessible_boundary,
     run_idsm_partial,
 )
-from src.utils import compute_iou, EXAMPLE1_BOXES
+from cooperation.ghy.IDSM.src.utils import compute_iou, EXAMPLE1_BOXES
 
 # ============================================================
 # Initialization

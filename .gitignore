@@ -11,3 +11,6 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Stage A neural preconditioner experiments (separate project)
+neural/

@@ -34,22 +34,6 @@ from .forward_solver import (
 from .dsm import compute_dsm_indicator, discretize_laplace_beltrami
 from .idsm import run_idsm
 from .idsm_partial import run_idsm_partial
-from .idsm_parabolic import (
-    ParabolicConfig,
-    run_idsm_parabolic,
-    solve_forward_parabolic_segment,
-    solve_forward_parabolic_nonlinear_segment,
-    solve_backward_adjoint_segment,
-    compute_local_dual,
-    apply_inclusion_projection,
-    damp_lowrank_state,
-    inclusion_trajectory_example1,
-    inclusion_trajectory_example2,
-    inclusion_trajectory_example3,
-    inclusion_trajectory_example4,
-    inclusion_trajectory_example5,
-    circle_indicator_p0,
-)
 from .mesh import generate_disk_mesh
 from .utils import (
     compute_iou,
@@ -124,21 +108,6 @@ __all__ = [
     # idsm
     "run_idsm",
     "run_idsm_partial",
-    # idsm_parabolic (Phase 5, Paper 2 / arXiv:2511.08197)
-    "ParabolicConfig",
-    "run_idsm_parabolic",
-    "solve_forward_parabolic_segment",
-    "solve_forward_parabolic_nonlinear_segment",
-    "solve_backward_adjoint_segment",
-    "compute_local_dual",
-    "apply_inclusion_projection",
-    "damp_lowrank_state",
-    "inclusion_trajectory_example1",
-    "inclusion_trajectory_example2",
-    "inclusion_trajectory_example3",
-    "inclusion_trajectory_example4",
-    "inclusion_trajectory_example5",
-    "circle_indicator_p0",
     "generate_disk_mesh",
     # utils
     "compute_iou",
