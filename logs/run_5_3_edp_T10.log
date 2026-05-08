@@ -1,0 +1,118 @@
+=== Ex 5.3 Nonlinear |y|y·U paper_cfg total_time=10.0 ===
+  cA=1.0 vA=1e-10 vB=20.0 (uA=vA uB=vB) noise=0.05
+  max_inner=80 forget=0.7 tol=0.08 lowrank=BFG
+  mesh: fine 3187 tri / coarse 1566 tri
+[run_idsm_parabolic] fine=1651 pts / coarse=824 pts
+  total_time=10.0 delta_t=0.1 forward_dt=0.02
+  synthesize done: y_data shape=(501, 1, 1651) range=[-1.158,3.999]
+  seg   0 t= 0.100 n_inner=  2 resid=0.0586 σ∈[1.000,1.000] IoU=0.000
+  seg   1 t= 0.200 n_inner=  1 resid=0.0490 σ∈[1.000,1.000] IoU=0.000
+  seg   2 t= 0.300 n_inner=  1 resid=0.0428 σ∈[1.000,1.000] IoU=0.000
+  seg   3 t= 0.400 n_inner=  1 resid=0.0387 σ∈[1.000,1.000] IoU=0.000
+  seg   4 t= 0.500 n_inner=  1 resid=0.0371 σ∈[1.000,1.000] IoU=0.265
+  seg   5 t= 0.600 n_inner=  1 resid=0.0442 σ∈[1.000,1.000] IoU=0.000
+  seg   6 t= 0.700 n_inner=  1 resid=0.0380 σ∈[1.000,1.000] IoU=0.386
+  seg   7 t= 0.800 n_inner=  1 resid=0.0537 σ∈[1.000,1.000] IoU=0.000
+  seg   8 t= 0.900 n_inner=  1 resid=0.0451 σ∈[1.000,1.000] IoU=0.383
+  seg   9 t= 1.000 n_inner=  1 resid=0.0578 σ∈[1.000,1.000] IoU=0.273
+  seg  10 t= 1.100 n_inner=  1 resid=0.0562 σ∈[1.000,1.000] IoU=0.357
+  seg  11 t= 1.200 n_inner=  1 resid=0.0754 σ∈[1.000,1.000] IoU=0.328
+  seg  12 t= 1.300 n_inner= 11 resid=0.0719 σ∈[1.000,1.000] IoU=0.000
+  seg  13 t= 1.400 n_inner=  1 resid=0.0665 σ∈[1.000,1.000] IoU=0.000
+  seg  14 t= 1.500 n_inner=  1 resid=0.0706 σ∈[1.000,1.000] IoU=0.000
+  seg  15 t= 1.600 n_inner=  1 resid=0.0565 σ∈[1.000,1.000] IoU=0.000
+  seg  16 t= 1.700 n_inner=  1 resid=0.0566 σ∈[1.000,1.000] IoU=0.000
+  seg  17 t= 1.800 n_inner=  1 resid=0.0514 σ∈[1.000,1.000] IoU=0.000
+  seg  18 t= 1.900 n_inner=  1 resid=0.0513 σ∈[1.000,1.000] IoU=0.000
+  seg  19 t= 2.000 n_inner=  1 resid=0.0480 σ∈[1.000,1.000] IoU=0.000
+  seg  20 t= 2.100 n_inner=  1 resid=0.0497 σ∈[1.000,1.000] IoU=0.000
+  seg  21 t= 2.200 n_inner=  1 resid=0.0435 σ∈[1.000,1.000] IoU=0.000
+  seg  22 t= 2.300 n_inner=  1 resid=0.0392 σ∈[1.000,1.000] IoU=0.387
+  seg  23 t= 2.400 n_inner=  1 resid=0.0335 σ∈[1.000,1.000] IoU=0.032
+  seg  24 t= 2.500 n_inner=  1 resid=0.0303 σ∈[1.000,1.000] IoU=0.744
+  seg  25 t= 2.600 n_inner=  1 resid=0.0394 σ∈[1.000,1.000] IoU=0.069
+  seg  26 t= 2.700 n_inner=  1 resid=0.0278 σ∈[1.000,1.000] IoU=0.509
+  seg  27 t= 2.800 n_inner=  1 resid=0.0426 σ∈[1.000,1.000] IoU=0.511
+  seg  28 t= 2.900 n_inner=  1 resid=0.0498 σ∈[1.000,1.000] IoU=0.000
+  seg  29 t= 3.000 n_inner=  1 resid=0.0348 σ∈[1.000,1.000] IoU=0.343
+  seg  30 t= 3.100 n_inner=  1 resid=0.0500 σ∈[1.000,1.000] IoU=0.000
+  seg  31 t= 3.200 n_inner=  1 resid=0.0293 σ∈[1.000,1.000] IoU=0.105
+  seg  32 t= 3.300 n_inner=  1 resid=0.0331 σ∈[1.000,1.000] IoU=0.000
+  seg  33 t= 3.400 n_inner=  1 resid=0.0321 σ∈[1.000,1.000] IoU=0.107
+  seg  34 t= 3.500 n_inner=  1 resid=0.0445 σ∈[1.000,1.000] IoU=0.000
+  seg  35 t= 3.600 n_inner=  1 resid=0.0314 σ∈[1.000,1.000] IoU=0.000
+  seg  36 t= 3.700 n_inner=  1 resid=0.0435 σ∈[1.000,1.000] IoU=0.000
+  seg  37 t= 3.800 n_inner=  1 resid=0.0534 σ∈[1.000,1.000] IoU=0.019
+  seg  38 t= 3.900 n_inner= 11 resid=0.0658 σ∈[1.000,1.000] IoU=0.000
+  seg  39 t= 4.000 n_inner=  1 resid=0.0285 σ∈[1.000,1.000] IoU=0.000
+  seg  40 t= 4.100 n_inner=  1 resid=0.0333 σ∈[1.000,1.000] IoU=0.000
+  seg  41 t= 4.200 n_inner=  1 resid=0.0362 σ∈[1.000,1.000] IoU=0.000
+  seg  42 t= 4.300 n_inner=  1 resid=0.0419 σ∈[1.000,1.000] IoU=0.000
+  seg  43 t= 4.400 n_inner=  1 resid=0.0390 σ∈[1.000,1.000] IoU=0.714
+  seg  44 t= 4.500 n_inner=  1 resid=0.0297 σ∈[1.000,1.000] IoU=0.000
+  seg  45 t= 4.600 n_inner=  1 resid=0.0308 σ∈[1.000,1.000] IoU=0.331
+  seg  46 t= 4.700 n_inner=  1 resid=0.0292 σ∈[1.000,1.000] IoU=0.644
+  seg  47 t= 4.800 n_inner=  1 resid=0.0312 σ∈[1.000,1.000] IoU=0.000
+  seg  48 t= 4.900 n_inner=  1 resid=0.0333 σ∈[1.000,1.000] IoU=0.448
+  seg  49 t= 5.000 n_inner=  1 resid=0.0509 σ∈[1.000,1.000] IoU=0.491
+  seg  50 t= 5.100 n_inner=  1 resid=0.0453 σ∈[1.000,1.000] IoU=0.404
+  seg  51 t= 5.200 n_inner=  1 resid=0.0718 σ∈[1.000,1.000] IoU=0.187
+  seg  52 t= 5.300 n_inner=  2 resid=0.0713 σ∈[1.000,1.000] IoU=0.000
+  seg  53 t= 5.400 n_inner=  1 resid=0.0513 σ∈[1.000,1.000] IoU=0.312
+  seg  54 t= 5.500 n_inner= 11 resid=0.0931 σ∈[1.000,1.000] IoU=0.000
+  seg  55 t= 5.600 n_inner=  1 resid=0.0548 σ∈[1.000,1.000] IoU=0.000
+  seg  56 t= 5.700 n_inner=  1 resid=0.0378 σ∈[1.000,1.000] IoU=0.000
+  seg  57 t= 5.800 n_inner=  1 resid=0.0303 σ∈[1.000,1.000] IoU=0.000
+  seg  58 t= 5.900 n_inner=  1 resid=0.0411 σ∈[1.000,1.000] IoU=0.000
+  seg  59 t= 6.000 n_inner=  1 resid=0.0328 σ∈[1.000,1.000] IoU=0.000
+  seg  60 t= 6.100 n_inner=  1 resid=0.0364 σ∈[1.000,1.000] IoU=0.000
+  seg  61 t= 6.200 n_inner=  1 resid=0.0358 σ∈[1.000,1.000] IoU=0.000
+  seg  62 t= 6.300 n_inner=  1 resid=0.0344 σ∈[1.000,1.000] IoU=0.000
+  seg  63 t= 6.400 n_inner=  1 resid=0.0340 σ∈[1.000,1.000] IoU=0.000
+  seg  64 t= 6.500 n_inner=  1 resid=0.0364 σ∈[1.000,1.000] IoU=0.000
+  seg  65 t= 6.600 n_inner=  1 resid=0.0348 σ∈[1.000,1.000] IoU=0.000
+  seg  66 t= 6.700 n_inner=  1 resid=0.0342 σ∈[1.000,1.000] IoU=0.000
+  seg  67 t= 6.800 n_inner=  1 resid=0.0357 σ∈[1.000,1.000] IoU=0.000
+  seg  68 t= 6.900 n_inner=  1 resid=0.0287 σ∈[1.000,1.000] IoU=0.000
+  seg  69 t= 7.000 n_inner=  1 resid=0.0351 σ∈[1.000,1.000] IoU=0.000
+  seg  70 t= 7.100 n_inner=  1 resid=0.0282 σ∈[1.000,1.000] IoU=0.000
+  seg  71 t= 7.200 n_inner= 21 resid=0.1075 σ∈[1.000,1.000] IoU=0.000
+  seg  72 t= 7.300 n_inner=  1 resid=0.0593 σ∈[1.000,1.000] IoU=0.000
+  seg  73 t= 7.400 n_inner=  1 resid=0.0371 σ∈[1.000,1.000] IoU=0.000
+  seg  74 t= 7.500 n_inner=  1 resid=0.0400 σ∈[1.000,1.000] IoU=0.000
+  seg  75 t= 7.600 n_inner=  1 resid=0.0320 σ∈[1.000,1.000] IoU=0.000
+  seg  76 t= 7.700 n_inner=  1 resid=0.0359 σ∈[1.000,1.000] IoU=0.000
+  seg  77 t= 7.800 n_inner=  1 resid=0.0292 σ∈[1.000,1.000] IoU=0.000
+  seg  78 t= 7.900 n_inner=  1 resid=0.0353 σ∈[1.000,1.000] IoU=0.000
+  seg  79 t= 8.000 n_inner=  1 resid=0.0345 σ∈[1.000,1.000] IoU=0.000
+  seg  80 t= 8.100 n_inner=  1 resid=0.0325 σ∈[1.000,1.000] IoU=0.000
+  seg  81 t= 8.200 n_inner=  1 resid=0.0245 σ∈[1.000,1.000] IoU=0.096
+  seg  82 t= 8.300 n_inner=  1 resid=0.0279 σ∈[1.000,1.000] IoU=0.237
+  seg  83 t= 8.400 n_inner=  1 resid=0.0407 σ∈[1.000,1.000] IoU=0.244
+  seg  84 t= 8.500 n_inner=  1 resid=0.0586 σ∈[1.000,1.000] IoU=0.261
+  seg  85 t= 8.600 n_inner=  1 resid=0.0606 σ∈[1.000,1.000] IoU=0.000
+  seg  86 t= 8.700 n_inner= 61 resid=0.2065 σ∈[1.000,1.000] IoU=0.000
+  seg  87 t= 8.800 n_inner= 11 resid=0.0878 σ∈[1.000,1.000] IoU=0.000
+  seg  88 t= 8.900 n_inner=  1 resid=0.0503 σ∈[1.000,1.000] IoU=0.000
+  seg  89 t= 9.000 n_inner=  1 resid=0.0309 σ∈[1.000,1.000] IoU=0.000
+  seg  90 t= 9.100 n_inner=  1 resid=0.0291 σ∈[1.000,1.000] IoU=0.000
+  seg  91 t= 9.200 n_inner=  1 resid=0.0437 σ∈[1.000,1.000] IoU=0.000
+  seg  92 t= 9.300 n_inner=  1 resid=0.0474 σ∈[1.000,1.000] IoU=0.000
+  seg  93 t= 9.400 n_inner=  1 resid=0.0362 σ∈[1.000,1.000] IoU=0.000
+  seg  94 t= 9.500 n_inner=  1 resid=0.0434 σ∈[1.000,1.000] IoU=0.000
+  seg  95 t= 9.600 n_inner=  1 resid=0.0398 σ∈[1.000,1.000] IoU=0.000
+  seg  96 t= 9.700 n_inner=  1 resid=0.0425 σ∈[1.000,1.000] IoU=0.000
+  seg  97 t= 9.800 n_inner=  1 resid=0.0490 σ∈[1.000,1.000] IoU=0.000
+  seg  98 t= 9.900 n_inner=  1 resid=0.0494 σ∈[1.000,1.000] IoU=0.000
+  seg  99 t=10.000 n_inner=  1 resid=0.0473 σ∈[1.000,1.000] IoU=0.514
+
+=== done in 1.2 min ===
+segments      : 100
+IoU mean      : 0.0970
+IoU max       : 0.7441 @ seg 24
+IoU final     : 0.5136
+IoU mean last20: 0.0676
+segs IoU>=0.3 : 17/100
+segs IoU>=0.5 : 6/100
+n_inner mean  : 2.22 (paper Table 1 says 7.46)
+-> /data1/liulingfeng/cooperation/ghy/IDSM/results/parabolic_fixed/ex_5_3_edp_T10.npz
