@@ -73,7 +73,7 @@ The five notebooks are designed to be followed in order:
 | `02_classical_dsm.ipynb` | Laplace-Beltrami, DSM indicator, limitations | ~2 min |
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
-| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), Paper §5 Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) | ~3 min |
+| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), live `run_idsm_parabolic` calls for Paper §5 Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) | ~5 min |
 
 Alternatively, you can use the package API directly:
 
@@ -173,16 +173,15 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `StabilizedLowRankResolver` -- Stabilization-correction scheme (Eq. 4.10-4.16)
 
 ### `src/idsm_parabolic.py` (Paper 2: arXiv:2511.08197)
-- `run_idsm_parabolic(coarse_mesh, y_data, forward_dt, f_func, g_func, initial_data, cfg, ...)` -- Algorithm 4.1, time-segmented IDSM for moving inclusions; auto-dispatches to σ/V double-field or U-recovery single-field path via `cfg.model`
-- `solve_forward_parabolic_segment(...)` -- Crank–Nicolson forward solver per segment (linear σ + V)
+- `run_idsm_parabolic(coarse_mesh, fine_mesh, cfg, c_func, v_func, ...)` -- Algorithm 4.1, time-segmented IDSM for moving inclusions; auto-dispatches to σ/V double-field or U-recovery single-field path via `cfg.model`
+- `solve_forward_segment(...)` -- Crank–Nicolson forward solver per segment (linear σ + V)
 - `solve_forward_segment_nonlinear(...)` -- Newton + Crank–Nicolson solver for §5.3 nonlinear $|y|y\cdot U$ source
 - `iterate_segment_nonlinear(...)` -- U-recovery inner loop (single-field P0 reconstruction projected to $[u_A, 2u_B]$)
-- `edp_cfg_example_5_{1..5}(noise=...)` -- Paper §5 Examples 5.1–5.5 configurations matched to FreeFEM `parabolic_*.edp`
-- `solve_backward_adjoint_segment(...)` -- Backward adjoint PDE (Eq. 4.1) with terminal condition
-- `compute_local_dual(mesh, y_hist, z_hist, normal_scale)` -- Time-integrated $\zeta_c$ and $\zeta_v$ (Eq. 4.2-4.4)
-- `apply_inclusion_projection(eta, n_tri, model, cA, cB, vA, vB)` -- Box projection per model type
-- `damp_lowrank_state(R, forget_scale)` -- Inter-segment forgetScale damping
-- `inclusion_trajectory_example1(t)` / `inclusion_trajectory_example4(t)` -- Truth trajectories (Examples 5.1, 5.4)
+- `edp_cfg_example_5_{1..5}(noise=...)` / `paper_cfg_example_5_{1..5}(noise=...)` -- Paper §5 Examples 5.1–5.5 configurations matched to FreeFEM `parabolic_*.edp` (edp = full FreeFEM defaults; paper = §4.3 reduced-iter hyperparams)
+- `solve_adjoint_segment(...)` -- Backward adjoint PDE (Eq. 4.6) with terminal condition
+- `synthesize_full_forward(...)` -- Reference fine-mesh forward pass that produces noisy boundary measurements
+- `c_func_example_5_{1..5}` / `v_func_example_5_{1..5}` / `u_func_example_5_3` -- Ground-truth coefficient fields used both for synthesizing data and for IoU evaluation
+- `trajectory_example_5_{1..5}` / `radius_example_5_{1,4,5}` -- Inclusion centre/radius trajectories per example
 - `ParabolicConfig` -- Parabolic IDSM hyperparameters (defaults match `parabolic_*.edp`)
 
 ### `src/dsm.py`
@@ -224,7 +223,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 | `02_classical_dsm.ipynb` | 2 | Laplace-Beltrami eigenproblem, DSM indicator, gamma parameter, limitations |
 | `03_iterative_dsm.ipynb` | 3 | Regularized DtN map, Algorithm 3.2, DFP/BFG, convergence analysis |
 | `04_comparative_study.ipynb` | 4 | DSM vs IDSM, partial data, damping factor, ablation, noise sweep |
-| `05_parabolic_idsm.ipynb` | 5 | Crank-Nicolson forward, backward adjoint (Eq. 4.1), Algorithm 4.1, Example 5.1 |
+| `05_parabolic_idsm.ipynb` | 5 | Crank-Nicolson forward, backward adjoint (Eq. 4.1), Algorithm 4.1, live runs for Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) |
 
 ## Configuration
 
