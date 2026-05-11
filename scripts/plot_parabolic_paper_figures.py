@@ -1,242 +1,200 @@
-"""论文 §5 Paper-Scale Parabolic 重构图与 Table 1 复现.
+"""Generate the main Section 5 parabolic reproduction figures.
 
-读取 results/parabolic/ex_5_*_{paper,edp}.npz, 输出:
-- figures/parabolic/fig_5_X_{paper,edp}.png  : 10 帧 heatmap (Fig 1-5 论文风格)
-- figures/parabolic/table1.txt               : PDE solve / IoU 汇总表
+This script reads the Python-generated caches in ``results/parabolic`` and
+writes one main figure per paper example to ``figures/parabolic``:
 
-API 说明：
-- ``trajectory_example_5_X(t, traj_index)`` 返回单条 inclusion 圆心 (cx, cy)
-- ``radius_example_5_X(traj_index)`` 或 ``radius_example_5_5(t, traj_index)`` 返回半径 (lx, ly)
-- traj_index 0/1 通常为 σ inclusion，2/3 为 V inclusion；半径 1e-10 视为屏蔽 ghost
-
-Usage:
-    python scripts/plot_parabolic_paper_figures.py
+- ``fig_5_1.png``: Example 5.1, 5% noise
+- ``fig_5_1_noise10.png``: Example 5.1, 10% noise
+- ``fig_5_2.png``: Example 5.2
+- ``fig_5_3.png``: Example 5.3
+- ``fig_5_4.png``: Example 5.4
+- ``fig_5_5.png``: Example 5.5
 """
+
 import sys
 from pathlib import Path
-import numpy as np
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.tri import Triangulation
 from matplotlib.patches import Ellipse
+from matplotlib.tri import Triangulation
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
 from src.idsm_parabolic import (
-    trajectory_example_5_1, radius_example_5_1,
+    radius_example_5_1,
+    radius_example_5_4,
+    radius_example_5_5,
+    trajectory_example_5_1,
     trajectory_example_5_2,
     trajectory_example_5_3,
-    trajectory_example_5_4, radius_example_5_4,
-    trajectory_example_5_5, radius_example_5_5,
+    trajectory_example_5_4,
+    trajectory_example_5_5,
 )
 
-# 椭圆描绘的最小半径阈值 — 小于此值视为 ghost (.edp 用 1e-10 屏蔽)
+
 GHOST_R = 1e-6
 
 
-def _radii_5_2(traj_index: int) -> np.ndarray:
-    """Ex 5.2 简单欧氏距离 + 半径 0.2，traj_index=3 屏蔽."""
-    if traj_index in (0, 1, 2):
-        return np.array([0.2, 0.2])
-    return np.array([1e-10, 1e-10])
+def _radii_5_2(_t, traj_index):
+    return np.array([0.2, 0.2]) if traj_index in (0, 1, 2) else np.array([1e-10, 1e-10])
 
 
-def _radii_5_3(traj_index: int) -> np.ndarray:
-    """Ex 5.3 唯一 inclusion 半径 0.2."""
-    if traj_index == 0:
-        return np.array([0.2, 0.2])
-    return np.array([1e-10, 1e-10])
+def _radii_5_3(_t, traj_index):
+    return np.array([0.2, 0.2]) if traj_index == 0 else np.array([1e-10, 1e-10])
 
 
-# 每个 example 的元信息
-EX_INFO = {
-    '5_1': dict(
-        title='Example 5.1: Conductivity Merging',
-        traj=trajectory_example_5_1, radius=lambda t, i: radius_example_5_1(i),
-        sigma_traj_idx=(0, 1), v_traj_idx=(2, 3), model='cond',
-    ),
-    '5_1_n10': dict(
-        title='Example 5.1 (noise=10%): Conductivity Merging',
-        traj=trajectory_example_5_1, radius=lambda t, i: radius_example_5_1(i),
-        sigma_traj_idx=(0, 1), v_traj_idx=(2, 3), model='cond',
-    ),
-    '5_2': dict(
-        title='Example 5.2: Mixed Moving (σ + V)',
-        traj=trajectory_example_5_2, radius=lambda t, i: _radii_5_2(i),
-        sigma_traj_idx=(0, 1), v_traj_idx=(2, 3), model='double',
-    ),
-    '5_3': dict(
-        title='Example 5.3: Nonlinear p=3 (linear surrogate)',
-        traj=trajectory_example_5_3, radius=lambda t, i: _radii_5_3(i),
-        sigma_traj_idx=(0,), v_traj_idx=(0,), model='nonlinear',
-    ),
-    '5_4': dict(
-        title='Example 5.4: Potential Fading',
-        traj=trajectory_example_5_4, radius=lambda t, i: radius_example_5_4(i),
-        sigma_traj_idx=(0, 1), v_traj_idx=(2, 3), model='pot',
-    ),
-    '5_5': dict(
-        title='Example 5.5: Conductivity Diminishing',
-        traj=trajectory_example_5_5, radius=lambda t, i: radius_example_5_5(t, i),
-        sigma_traj_idx=(0, 1), v_traj_idx=(2, 3), model='cond',
-    ),
-}
+MAIN_FIGURES = [
+    ('5_1', 'paper', 'fig_5_1.png', 'Example 5.1: Conductivity Merging (5% noise)',
+     trajectory_example_5_1, lambda t, i: radius_example_5_1(i), (0, 1), 'cond'),
+    ('5_1_n10', 'paper', 'fig_5_1_noise10.png', 'Example 5.1: Conductivity Merging (10% noise)',
+     trajectory_example_5_1, lambda t, i: radius_example_5_1(i), (0, 1), 'cond'),
+    ('5_2', 'paper', 'fig_5_2.png', 'Example 5.2: Mixed Moving',
+     trajectory_example_5_2, _radii_5_2, (0, 1, 2), 'double'),
+    ('5_3', 'edp', 'fig_5_3.png', 'Example 5.3: Nonlinear U Recovery',
+     trajectory_example_5_3, _radii_5_3, (0,), 'nonlinear'),
+    ('5_4', 'edp', 'fig_5_4.png', 'Example 5.4: Potential Fading',
+     trajectory_example_5_4, lambda t, i: radius_example_5_4(i), (2, 3), 'pot'),
+    ('5_5', 'paper', 'fig_5_5.png', 'Example 5.5: Conductivity Diminishing',
+     trajectory_example_5_5, radius_example_5_5, (0, 1), 'cond'),
+]
 
 
-def load_npz(key: str, mode: str):
+def load_npz(key, mode):
     path = ROOT / 'results' / 'parabolic' / f'ex_{key}_{mode}.npz'
     if not path.exists():
-        return None
+        raise FileNotFoundError(f'Missing result cache: {path}')
     return np.load(path, allow_pickle=False)
 
 
-def _draw_inclusions(ax, info, t_now, idx_tuple, edge='red'):
-    """在 ax 上画 inclusion 椭圆轮廓（半径 < GHOST_R 视为屏蔽）."""
-    for ti in idx_tuple:
-        cp = info['traj'](t_now, ti)
-        r = info['radius'](t_now, ti)
-        if max(float(r[0]), float(r[1])) < GHOST_R:
+def draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, *, edge='red'):
+    for traj_index in idx_tuple:
+        center = traj_func(t_now, traj_index)
+        radii = radius_func(t_now, traj_index)
+        if max(float(radii[0]), float(radii[1])) < GHOST_R:
             continue
-        e = Ellipse(
-            (float(cp[0]), float(cp[1])),
-            width=2.0 * float(r[0]), height=2.0 * float(r[1]),
-            fill=False, edgecolor=edge, linewidth=1.5,
-        )
-        ax.add_patch(e)
+        ax.add_patch(Ellipse(
+            (float(center[0]), float(center[1])),
+            width=2.0 * float(radii[0]),
+            height=2.0 * float(radii[1]),
+            fill=False,
+            edgecolor=edge,
+            linewidth=1.4,
+        ))
 
 
-def plot_example(key: str, mode: str = 'paper'):
+def field_for_model(data, model, frame_index):
+    if model in ('pot',):
+        return data['v_history'][frame_index]
+    if model in ('nonlinear',):
+        return data['v_history'][frame_index]
+    return data['sigma_history'][frame_index]
+
+
+def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tuple, model):
     data = load_npz(key, mode)
-    if data is None:
-        print(f'  skip ex_{key}_{mode} (no npz)')
-        return
-    info = EX_INFO[key]
-    pts = data['coarse_points']
-    tris = data['coarse_triangles']
-    sigma_h = data['sigma_history']
-    v_pot_h = data['v_history']
-    iou = data['iou_history']
+    points = data['coarse_points']
+    triangles = data['coarse_triangles']
+    triang = Triangulation(points[:, 0], points[:, 1], triangles)
+
+    n_seg = int(data['iou_history'].shape[0])
+    frame_count = min(10, n_seg)
+    frame_idx = np.linspace(0, n_seg - 1, frame_count).astype(int)
     total_time = float(data['cfg_total_time'])
-    cA = float(data['cfg_cA']); cB = float(data['cfg_cB'])
-    vA = float(data['cfg_vA']); vB = float(data['cfg_vB'])
-    n_seg = sigma_h.shape[0]
 
-    n_frames = 10 if n_seg >= 10 else n_seg
-    idx_frames = np.linspace(0, n_seg - 1, n_frames).astype(int)
+    if model == 'double':
+        rows = 2
+    else:
+        rows = 1
+    fig, axes = plt.subplots(rows, frame_count, figsize=(2.0 * frame_count, 2.4 * rows), squeeze=False)
 
-    triang = Triangulation(pts[:, 0], pts[:, 1], tris)
-
-    rows = 2 if info['model'] == 'double' else 1
-    fig, axes = plt.subplots(
-        rows, n_frames,
-        figsize=(2.0 * n_frames, 2.2 * rows + 0.3),
-        squeeze=False,
-    )
-
-    for col, seg_idx in enumerate(idx_frames):
+    for col, seg_idx in enumerate(frame_idx):
         t_now = (seg_idx + 1) * total_time / n_seg
-        sigma = sigma_h[seg_idx]
-        v_pot = v_pot_h[seg_idx]
+        if model == 'double':
+            sigma = data['sigma_history'][seg_idx]
+            potential = data['v_history'][seg_idx]
+            c_a = float(data['cfg_cA'])
+            c_b = float(data['cfg_cB'])
+            v_a = float(data['cfg_vA'])
+            v_b = float(data['cfg_vB'])
 
-        if info['model'] == 'double':
             ax = axes[0, col]
-            ax.tripcolor(triang, facecolors=sigma,
-                         shading='flat', cmap='viridis',
-                         vmin=cB, vmax=cA)
-            _draw_inclusions(ax, info, t_now, info['sigma_traj_idx'], edge='red')
-            ax.set_xlim(-1.05, 1.05); ax.set_ylim(-1.05, 1.05)
-            ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
-            ax.set_title(f't={t_now:.2f}', fontsize=9)
-            if col == 0:
-                ax.set_ylabel('σ', fontsize=10)
+            ax.tripcolor(triang, facecolors=sigma, shading='flat', cmap='viridis', vmin=c_b, vmax=c_a)
+            draw_inclusions(ax, traj_func, radius_func, t_now, (0, 1), edge='red')
+            ax.set_ylabel('sigma' if col == 0 else '')
+
             ax = axes[1, col]
-            vmax_v = max(vB, vA + 1e-6)
-            ax.tripcolor(triang, facecolors=v_pot,
-                         shading='flat', cmap='magma',
-                         vmin=vA, vmax=vmax_v)
-            _draw_inclusions(ax, info, t_now, info['v_traj_idx'], edge='cyan')
-            ax.set_xlim(-1.05, 1.05); ax.set_ylim(-1.05, 1.05)
-            ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
-            if col == 0:
-                ax.set_ylabel('V', fontsize=10)
+            ax.tripcolor(triang, facecolors=potential, shading='flat', cmap='magma', vmin=v_a, vmax=max(v_b, v_a + 1e-6))
+            draw_inclusions(ax, traj_func, radius_func, t_now, (2,), edge='cyan')
+            ax.set_ylabel('V' if col == 0 else '')
         else:
             ax = axes[0, col]
-            if info['model'] in ('cond', 'nonlinear'):
-                ax.tripcolor(triang, facecolors=sigma,
-                             shading='flat', cmap='viridis',
-                             vmin=cB, vmax=cA)
-                if col == 0:
-                    ax.set_ylabel('σ', fontsize=10)
-                _draw_inclusions(ax, info, t_now, info['sigma_traj_idx'], edge='red')
-            else:  # pot
-                vmax_v = max(vB, vA + 1e-6)
-                ax.tripcolor(triang, facecolors=v_pot,
-                             shading='flat', cmap='magma',
-                             vmin=vA, vmax=vmax_v)
-                if col == 0:
-                    ax.set_ylabel('V', fontsize=10)
-                _draw_inclusions(ax, info, t_now, info['v_traj_idx'], edge='cyan')
-            ax.set_xlim(-1.05, 1.05); ax.set_ylim(-1.05, 1.05)
-            ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])
+            field = field_for_model(data, model, seg_idx)
+            if model == 'pot':
+                v_a = float(data['cfg_vA'])
+                v_b = float(data['cfg_vB'])
+                ax.tripcolor(triang, facecolors=field, shading='flat', cmap='magma', vmin=v_a, vmax=max(v_b, v_a + 1e-6))
+                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge='cyan')
+                ax.set_ylabel('V' if col == 0 else '')
+            elif model == 'nonlinear':
+                u_a = float(data['cfg_vA'])
+                u_b = float(data['cfg_vB'])
+                ax.tripcolor(triang, facecolors=field, shading='flat', cmap='viridis',
+                             vmin=u_a, vmax=2.0 * u_b)
+                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge='red')
+                ax.set_ylabel('U' if col == 0 else '')
+            else:
+                c_a = float(data['cfg_cA'])
+                c_b = float(data['cfg_cB'])
+                ax.tripcolor(triang, facecolors=field, shading='flat', cmap='viridis', vmin=c_b, vmax=c_a)
+                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge='red')
+                ax.set_ylabel('sigma' if col == 0 else '')
+
+        for ax in axes[:, col]:
+            ax.set_xlim(-1.05, 1.05)
+            ax.set_ylim(-1.05, 1.05)
+            ax.set_aspect('equal')
+            ax.set_xticks([])
+            ax.set_yticks([])
             ax.set_title(f't={t_now:.2f}', fontsize=9)
 
-    iou_str = ''
-    if iou.size > 0:
-        iou_str = f"  IoU mean={iou.mean():.3f} max={iou.max():.3f}"
-    fig.suptitle(f"{info['title']}{iou_str}  [cfg={mode}]", fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-
+    iou = data['iou_history']
+    fig.suptitle(f'{title}  |  IoU mean={iou.mean():.3f}, max={iou.max():.3f}', fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
     out_dir = ROOT / 'figures' / 'parabolic'
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f'fig_{key}_{mode}.png'
-    fig.savefig(out_path, dpi=120)
+    out_path = out_dir / filename
+    fig.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f'  saved {out_path}')
+    print(f'saved {out_path}')
 
 
-def make_table1():
-    """Table 1: 各 example 平均每段 PDE solve 计数 / IoU 汇总.
-
-    PDE solves per segment ≈ inner_iter * (forward + adjoint per iter)
-                           = mean_inner * 2 + 3 (背景 forward + backward + transition).
-    """
+def make_table():
     lines = [
-        '# Table 1 — PDE Solve Counts per Segment / IoU 汇总',
-        '# 单元格：mean_inner = 平均内迭代步数；PDE/seg = 每段 PDE solve 估算',
+        '# Main Parabolic Reproduction Summary',
         '',
-        f"{'Example':<10s} {'mode':<6s} {'inner_mean':>10s} "
-        f"{'PDE/seg':>8s} {'n_seg':>6s} {'IoU_mean':>9s} "
-        f"{'IoU_max':>8s} {'runtime':>8s}",
+        f"{'Example':<10s} {'cache':<18s} {'n_seg':>6s} {'inner':>7s} {'IoU_mean':>9s} {'IoU_max':>8s} {'runtime':>8s}",
     ]
-    for key in ['5_1', '5_1_n10', '5_2', '5_3', '5_4', '5_5']:
-        for mode in ['paper', 'edp']:
-            data = load_npz(key, mode)
-            if data is None:
-                continue
-            n_inner = data['n_inner_per_segment']
-            iou = data['iou_history']
-            mean_inner = float(n_inner.mean())
-            pde_per_seg = mean_inner * 2 + 3
-            n_seg = int(n_inner.size)
-            iou_mean = float(iou.mean()) if iou.size > 0 else float('nan')
-            iou_max = float(iou.max()) if iou.size > 0 else float('nan')
-            rt = float(data['runtime_seconds'])
-            lines.append(
-                f"{key:<10s} {mode:<6s} {mean_inner:>10.2f} "
-                f"{pde_per_seg:>8.1f} {n_seg:>6d} {iou_mean:>9.3f} "
-                f"{iou_max:>8.3f} {rt:>7.1f}s"
-            )
+    for key, mode, _filename, _title, *_rest in MAIN_FIGURES:
+        data = load_npz(key, mode)
+        iou = data['iou_history']
+        inner = data['n_inner_per_segment']
+        lines.append(
+            f"{key:<10s} {f'ex_{key}_{mode}.npz':<18s} {iou.shape[0]:>6d} "
+            f"{float(inner.mean()):>7.2f} {float(iou.mean()):>9.3f} "
+            f"{float(iou.max()):>8.3f} {float(data['runtime_seconds']):>7.1f}s"
+        )
     out = '\n'.join(lines)
+    out_path = ROOT / 'figures' / 'parabolic' / 'table1.txt'
+    out_path.write_text(out)
     print(out)
-    out_dir = ROOT / 'figures' / 'parabolic'
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / 'table1.txt').write_text(out)
-    print(f'\nsaved → {out_dir / "table1.txt"}')
+    print(f'saved {out_path}')
 
 
 if __name__ == '__main__':
-    for key in EX_INFO.keys():
-        for mode in ['paper', 'edp']:
-            plot_example(key, mode)
-    make_table1()
+    for spec in MAIN_FIGURES:
+        plot_main_figure(*spec)
+    make_table()

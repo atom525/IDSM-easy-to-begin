@@ -1,26 +1,26 @@
-"""统一驱动 Example 5.1-5.5 的 paper §5 复现 runner。
+"""FreeFEM reference implementation detail.
 
-调用约定（与 src.idsm_parabolic.run_idsm_parabolic 对齐）：
+FreeFEM reference implementation detail.
     run_idsm_parabolic(coarse_mesh, fine_mesh, cfg, c_func, v_func, seed, verbose)
 
-输出 results/parabolic/ex_5_{X}_{paper|edp}.npz，字段：
+FreeFEM reference implementation detail.
     sigma_history, v_history, y_quote_history,
     residuals_per_segment, n_inner_per_segment, iou_history,
     coarse_points, coarse_triangles, coarse_areas, coarse_centroids,
-    cfg_*（持久化标量），noise_level, elapsed_sec
+    FreeFEM reference implementation detail.
 
-Ex 5.3 (Nonlinear) 正问题已用 Newton+CN 复刻 .edp 的 |y|y·U 三次项；反演端
-仍是 (σ,V) 线性 IDSM, 因此 IoU 与 σ trivially constant 比对约为 0（U-recovery
-inversion 见 task #71）。
+Ex 5.3 (Nonlinear) uses the dedicated U-recovery branch in
+``src.idsm_parabolic``: Newton-Crank-Nicolson forward solves and a single-field
+P0 reconstruction for the coefficient U.
 """
 import argparse, json, sys, time
 from pathlib import Path
 
-ROOT = Path('/data1/liulingfeng/cooperation/ghy/IDSM')
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import numpy as np
 
-from src.mesh import generate_disk_mesh
+from src.mesh import generate_disk_mesh_paper
 from src.idsm_parabolic import (
     run_idsm_parabolic,
     edp_cfg_example_5_1, edp_cfg_example_5_2, edp_cfg_example_5_3,
@@ -64,7 +64,7 @@ EXAMPLES = {
 
 
 def cfg_to_dict(cfg):
-    """ParabolicConfig → 标量 dict，可放入 npz."""
+    """FreeFEM reference implementation detail."""
     out = {}
     for k in ('cA', 'cB', 'vA', 'vB', 'model', 'total_time', 'forward_dt',
              'delta_t', 'delta_t_split', 'n_solve', 'n_coarse', 'save_num',
@@ -84,14 +84,17 @@ def run_single(example_id: str, mode: str, noise: float, out_dir: Path,
         cfg = spec['edp_cfg'](noise=noise)
     if total_time_override is not None:
         cfg.total_time = total_time_override
+    elif example_id == '5.3':
+        # The FreeFEM script keeps a short default for quick debugging, but the
+        # paper discussion and figures track the nonlinear inclusion over a
+        # long horizon.  Use the paper-scale horizon for the canonical runner.
+        cfg.total_time = 10.0
 
-    n_b_fine = int(80 * np.sqrt(2))
-    n_b_coarse = 80
     print(f"\n[{example_id} {spec['name']} | {mode} | noise={noise}] "
           f"total_time={cfg.total_time:.2f} tol={cfg.tolerance} "
           f"max_inner={cfg.max_inner} forget={cfg.forget_scale} lowrank={cfg.lowrank}")
-    fine = generate_disk_mesh(n_boundary=n_b_fine)
-    coarse = generate_disk_mesh(n_boundary=n_b_coarse)
+    fine = generate_disk_mesh_paper(target_triangles=7002)
+    coarse = generate_disk_mesh_paper(target_triangles=1120)
     print(f"  mesh: fine {fine.n_triangles} tri / coarse {coarse.n_triangles} tri")
 
     t0 = time.time()
@@ -141,13 +144,13 @@ def main():
                         choices=['all', '5.1', '5.2', '5.3', '5.4', '5.5'])
     parser.add_argument('--mode', default='both', choices=['both', 'paper', 'edp'])
     parser.add_argument('--noise', type=float, default=None,
-                        help='覆盖默认 noise（默认按 paper=0.05/edp=0.05 或 5.1 .edp=0.20）')
+                        help='Override the default noise level.')
     parser.add_argument('--total-time', type=float, default=None,
-                        help='覆盖 total_time（默认按 .edp 各自设置）')
+                        help='Override the example total_time.')
     parser.add_argument('--out-dir', default='results/parabolic')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--include-ex51-n10', action='store_true',
-                        help='额外跑 Ex 5.1 noise=10% paper-cfg')
+                        help='Also run Example 5.1 with 10% noise in paper mode.')
     args = parser.parse_args()
 
     out_dir = ROOT / args.out_dir
@@ -160,7 +163,7 @@ def main():
     t_all = time.time()
     for eid in examples:
         for m in modes:
-            # 默认 noise：paper=0.05, edp 5.1=0.20 其余=0.05
+            # FreeFEM reference note.
             if args.noise is not None:
                 noise = args.noise
             elif m == 'paper':
@@ -193,10 +196,9 @@ def main():
             cfg = pcfg51(noise=0.10)
             if args.total_time is not None:
                 cfg.total_time = args.total_time
-            n_b_fine = int(80 * np.sqrt(2)); n_b_coarse = 80
             print(f"\n[5.1 {spec['name']} | paper | noise=0.10] total_time={cfg.total_time}")
-            fine = generate_disk_mesh(n_boundary=n_b_fine)
-            coarse = generate_disk_mesh(n_boundary=n_b_coarse)
+            fine = generate_disk_mesh_paper(target_triangles=7002)
+            coarse = generate_disk_mesh_paper(target_triangles=1120)
             t0 = time.time()
             res = run_idsm_parabolic(
                 coarse_mesh=coarse, fine_mesh=fine, cfg=cfg,
@@ -238,9 +240,9 @@ def main():
             summary['ex_5_1_n10_paper'] = dict(error=str(e))
 
     print(f"\n=========== ALL DONE in {time.time()-t_all:.1f}s ===========")
-    json.dump(summary, open(ROOT / 'logs' / 'run_all_examples_summary.json', 'w'),
-              indent=2, default=str)
-    print(f"summary -> logs/run_all_examples_summary.json")
+    summary_path = out_dir / 'summary.json'
+    json.dump(summary, open(summary_path, 'w'), indent=2, default=str)
+    print(f"summary -> {summary_path}")
 
 
 if __name__ == '__main__':

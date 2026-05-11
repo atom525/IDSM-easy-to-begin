@@ -61,7 +61,7 @@ python -c "from IDSM.src import run_idsm; print('OK')"
 The recommended way to get started is through the Jupyter notebooks, which provide step-by-step theory and code:
 
 ```bash
-cd IDSM/notebooks
+cd IDSM-easy-to-begin/notebooks
 jupyter notebook 01_forward_problem.ipynb   # Phase 1: FEM, mesh, forward solver
 ```
 
@@ -73,7 +73,7 @@ The five notebooks are designed to be followed in order:
 | `02_classical_dsm.ipynb` | Laplace-Beltrami, DSM indicator, limitations | ~2 min |
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
-| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), live `run_idsm_parabolic` calls for Paper §5 Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) | ~5 min |
+| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), paper-scale Section 5 examples, saved `05_*.png` tutorial figures | ~10–20 min |
 
 Alternatively, you can use the package API directly:
 
@@ -134,6 +134,13 @@ IDSM/
   reference/
     Example1.edp ... Example5.edp   # FreeFEM reference code
   figures/               # Generated figures from notebooks
+    parabolic/           # Paper Section 5 multi-frame reproduction figures
+  results/
+    parabolic/           # Reproducible NPZ caches consumed by figures/parabolic
+  scripts/
+    run_all_examples.py              # Regenerate Paper Section 5 NPZ caches
+    plot_parabolic_paper_figures.py  # Regenerate figures/parabolic from NPZ caches
+    regen_docs_figures.py            # Regenerate README/docs figures
   requirements.txt
   README.md
 ```
@@ -177,12 +184,23 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `solve_forward_segment(...)` -- Crank–Nicolson forward solver per segment (linear σ + V)
 - `solve_forward_segment_nonlinear(...)` -- Newton + Crank–Nicolson solver for §5.3 nonlinear $|y|y\cdot U$ source
 - `iterate_segment_nonlinear(...)` -- U-recovery inner loop (single-field P0 reconstruction projected to $[u_A, 2u_B]$)
-- `edp_cfg_example_5_{1..5}(noise=...)` / `paper_cfg_example_5_{1..5}(noise=...)` -- Paper §5 Examples 5.1–5.5 configurations matched to FreeFEM `parabolic_*.edp` (edp = full FreeFEM defaults; paper = §4.3 reduced-iter hyperparams)
+- `edp_cfg_example_5_{1..5}(noise=...)` / `paper_cfg_example_5_{1..5}(noise=...)` -- Paper §5 Examples 5.1–5.5 configurations. `edp_cfg` keeps the FreeFEM defaults; `paper_cfg` is the notebook-fast reduced-iteration setting used for quick visual checks.
 - `solve_adjoint_segment(...)` -- Backward adjoint PDE (Eq. 4.6) with terminal condition
 - `synthesize_full_forward(...)` -- Reference fine-mesh forward pass that produces noisy boundary measurements
 - `c_func_example_5_{1..5}` / `v_func_example_5_{1..5}` / `u_func_example_5_3` -- Ground-truth coefficient fields used both for synthesizing data and for IoU evaluation
 - `trajectory_example_5_{1..5}` / `radius_example_5_{1,4,5}` -- Inclusion centre/radius trajectories per example
 - `ParabolicConfig` -- Parabolic IDSM hyperparameters (defaults match `parabolic_*.edp`)
+
+### Parabolic Reproduction Artifacts
+
+Notebook 05 produces tutorial figures directly under `figures/05_*.png`. The paper-style multi-frame plots are generated in two reproducible steps:
+
+```bash
+python scripts/run_all_examples.py --mode both --include-ex51-n10 --quiet
+python scripts/plot_parabolic_paper_figures.py
+```
+
+The first command writes numerical caches to `results/parabolic/*.npz`; the second command reads those caches and refreshes `figures/parabolic/*.png` plus `figures/parabolic/table1.txt`. The NPZ files are not source code, but they are kept so the paper-style figures can be inspected without rerunning the full parabolic experiment every time.
 
 ### `src/dsm.py`
 - `compute_dsm_indicator(mesh, cauchy_data, gamma, ...)` -- DSM indicator $\eta(x)$ (Eq. 2.8)

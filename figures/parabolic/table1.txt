@@ -1,15 +1,9 @@
-# Table 1 — PDE Solve Counts per Segment / IoU 汇总
-# 单元格：mean_inner = 平均内迭代步数；PDE/seg = 每段 PDE solve 估算
+# Main Parabolic Reproduction Summary
 
-Example    mode   inner_mean  PDE/seg  n_seg  IoU_mean  IoU_max  runtime
-5_1        paper        1.20      5.4    102     0.173    0.450    30.5s
-5_1        edp         17.43     37.9    102     0.100    0.370   123.1s
-5_1_n10    paper        1.60      6.2    102     0.116    0.463    29.9s
-5_2        paper        1.17      5.3    103     0.267    0.572    42.2s
-5_2        edp          4.53     12.1    103     0.238    0.533    63.2s
-5_3        paper        2.66      8.3    100     0.132    0.505    80.5s
-5_3        edp          2.22      7.4    100     0.097    0.744    70.4s
-5_4        paper        2.10      7.2    103     0.159    0.532    40.1s
-5_4        edp          1.50      6.0    103     0.100    0.588    29.6s
-5_5        paper        1.00      5.0     53     0.296    0.599    16.5s
-5_5        edp          1.00      5.0     53     0.282    0.592    13.7s
+Example    cache               n_seg   inner  IoU_mean  IoU_max  runtime
+5_1        ex_5_1_paper.npz      101    1.13     0.206    0.679    40.9s
+5_1_n10    ex_5_1_n10_paper.npz    101    2.04     0.110    0.288    44.5s
+5_2        ex_5_2_paper.npz      102    1.00     0.312    0.649    53.9s
+5_3        ex_5_3_edp.npz         99    2.24     0.145    0.759    85.1s
+5_4        ex_5_4_edp.npz        102    2.19     0.080    0.721    45.7s
+5_5        ex_5_5_paper.npz       52    1.00     0.315    0.584    20.8s

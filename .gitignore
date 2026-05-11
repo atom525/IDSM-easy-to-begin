@@ -7,10 +7,12 @@ __pycache__/
 .env
 .venv/
 venv/
+IDSM_env/
 *.so
 .pytest_cache/
 .coverage
 htmlcov/
+logs/
 
 # Stage A neural preconditioner experiments (separate project)
 neural/

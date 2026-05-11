@@ -1,0 +1,50 @@
+{
+  "ex_5_1_n10_paper": {
+    "segments": 101,
+    "iou_mean": 0.1101213656140199,
+    "iou_max": 0.28827120915396925,
+    "iou_final": 0.08329805178719119,
+    "inner_mean": 2.0396039603960396,
+    "runtime_seconds": 44.46629190444946
+  },
+  "ex_5_1_paper": {
+    "segments": 101,
+    "iou_mean": 0.20577372187296583,
+    "iou_max": 0.6790284559745106,
+    "iou_final": 0.11596880297117575,
+    "inner_mean": 1.1287128712871286,
+    "runtime_seconds": 40.88732028007507
+  },
+  "ex_5_2_paper": {
+    "segments": 102,
+    "iou_mean": 0.3120041544837436,
+    "iou_max": 0.6487699387794414,
+    "iou_final": 0.6163501631509708,
+    "inner_mean": 1.0,
+    "runtime_seconds": 53.92578911781311
+  },
+  "ex_5_3_edp": {
+    "segments": 99,
+    "iou_mean": 0.14529434795655277,
+    "iou_max": 0.758656455804432,
+    "iou_final": 0.63558366811854,
+    "inner_mean": 2.242424242424242,
+    "runtime_seconds": 85.07363891601562
+  },
+  "ex_5_4_edp": {
+    "segments": 102,
+    "iou_mean": 0.07964830111173941,
+    "iou_max": 0.7209071018188277,
+    "iou_final": 0.0,
+    "inner_mean": 2.1862745098039214,
+    "runtime_seconds": 45.678446531295776
+  },
+  "ex_5_5_paper": {
+    "segments": 52,
+    "iou_mean": 0.31514141077141034,
+    "iou_max": 0.5842547924682766,
+    "iou_final": 0.5098439964178564,
+    "inner_mean": 1.0,
+    "runtime_seconds": 20.79268455505371
+  }
+}
