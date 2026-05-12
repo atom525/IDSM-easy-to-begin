@@ -3,7 +3,7 @@
 import os
 import pytest
 
-from cooperation.ghy.IDSM.src.config import (
+from src.config import (
     RuntimeConfig,
     MeshConfig,
     FullIDSMConfig,

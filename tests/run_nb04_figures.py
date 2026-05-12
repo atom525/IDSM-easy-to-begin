@@ -1,7 +1,7 @@
-"""Re-run all 13 figures from NB04 (no jupyter kernel needed).
+"""Re-run all 15 figures from NB04 (no jupyter kernel needed).
 
 Usage:
-    cd /mnt/c/Users/maxfo/Desktop/Summer_Research_CUHK/IDSM
+    cd /data1/liulingfeng/cooperation/ghy/IDSM-easy-to-begin
     python -m tests.run_nb04_figures
 """
 
@@ -16,9 +16,9 @@ from matplotlib.patches import Rectangle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from cooperation.ghy.IDSM.src.config import Notebook04Config, RuntimeConfig
-from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
-from cooperation.ghy.IDSM.src.forward_solver import (
+from src.config import Notebook04Config, RuntimeConfig
+from src.mesh import generate_elliptic_mesh
+from src.forward_solver import (
     make_conductivity_example1,
     make_conductivity_conductive,
     make_conductivity_single,
@@ -28,13 +28,23 @@ from cooperation.ghy.IDSM.src.forward_solver import (
     generate_cauchy_data_general,
     solve_forward,
 )
-from cooperation.ghy.IDSM.src.dsm import compute_dsm_indicator
-from cooperation.ghy.IDSM.src.idsm import run_idsm
-from cooperation.ghy.IDSM.src.idsm_partial import (
+from src.dsm import compute_dsm_indicator
+from src.idsm import run_idsm
+from src.idsm_partial import (
     define_accessible_boundary,
     run_idsm_partial,
 )
-from cooperation.ghy.IDSM.src.utils import compute_iou, EXAMPLE1_BOXES
+from src.utils import (
+    CMAP_INDICATOR,
+    CMAP_POTENTIAL,
+    CMAP_SIGMA,
+    CMAP_SIGNED,
+    EXAMPLE1_BOXES,
+    add_truth_boxes,
+    compute_iou,
+    sigma_norm,
+    signed_contrast_norm,
+)
 
 # ============================================================
 # Initialization
@@ -59,9 +69,50 @@ T_GLOBAL = time.time()
 
 def save_fig(fig, name):
     path = os.path.join(fig_dir, name)
-    fig.savefig(path, dpi=150, bbox_inches='tight')
+    fig.savefig(path, dpi=180, bbox_inches='tight')
     plt.close(fig)
     print(f"  → Saved {name}")
+
+
+def finish_domain_axis(ax):
+    ax.set_aspect('equal')
+    ax.set_xlabel('$x_1$')
+    ax.set_ylabel('$x_2$')
+
+
+def plot_sigma(ax, values, title, *, vmin=0.01, vmax=1.0, boxes=EXAMPLE1_BOXES):
+    im = ax.tripcolor(
+        tri, values, cmap=CMAP_SIGMA, shading='flat',
+        norm=sigma_norm(vmin, vmax),
+    )
+    if boxes:
+        add_truth_boxes(ax, boxes)
+    finish_domain_axis(ax)
+    ax.set_title(title)
+    return im
+
+
+def plot_signed_sigma(ax, sigma, title, *, limit=0.8, boxes=EXAMPLE1_BOXES):
+    im = ax.tripcolor(
+        tri, sigma - 1.0, cmap=CMAP_SIGNED, shading='flat',
+        norm=signed_contrast_norm(limit),
+    )
+    if boxes:
+        add_truth_boxes(ax, boxes)
+    finish_domain_axis(ax)
+    ax.set_title(title)
+    return im
+
+
+def plot_indicator(ax, result, title, *, boxes=EXAMPLE1_BOXES):
+    gx = result['grid_x']
+    gy = result['grid_y']
+    im = ax.pcolormesh(gx, gy, result['indicator'].T, cmap=CMAP_INDICATOR, shading='auto')
+    if boxes:
+        add_truth_boxes(ax, boxes)
+    finish_domain_axis(ax)
+    ax.set_title(title)
+    return im
 
 
 # ============================================================
@@ -612,71 +663,35 @@ print(f"  Conductive: IoU={iou_con:.4f}, σ_max={sf_con.max():.4f}")
 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
 ax = axes[0, 0]
-im = ax.tripcolor(tri, sigma_ins, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=3.5)
-for box in EXAMPLE1_BOXES:
-    cx, cy = box['center']
-    hw = box['half_width']
-    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
-                 edgecolor='k', linewidth=2, linestyle='--'))
-ax.set_aspect('equal')
-ax.set_title(r'True: Insulating ($\sigma=0.3$)')
+im = plot_signed_sigma(
+    ax, sigma_ins, r'True contrast: insulating ($u=\sigma-\sigma_0<0$)', limit=0.8
+)
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 ax = axes[0, 1]
-gx = dsm_ins['grid_x']
-gy = dsm_ins['grid_y']
-im = ax.pcolormesh(gx, gy, dsm_ins['indicator'].T, cmap='hot_r', shading='auto')
-for box in EXAMPLE1_BOXES:
-    cx, cy = box['center']
-    hw = box['half_width']
-    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
-                 edgecolor='cyan', linewidth=2, linestyle='--'))
-ax.set_aspect('equal')
-ax.set_title(r'DSM (insulating): $\eta \geq 0$ always')
+im = plot_indicator(ax, dsm_ins, r'DSM: insulating ($\eta\geq0$, no sign)')
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 ax = axes[0, 2]
-im = ax.tripcolor(tri, sf_ins, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=3.5)
-for box in EXAMPLE1_BOXES:
-    cx, cy = box['center']
-    hw = box['half_width']
-    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
-                 edgecolor='k', linewidth=2, linestyle='--'))
-ax.set_aspect('equal')
-ax.set_title(r'IDSM: $\sigma_{\min}=%.3f$ ($\sigma < \sigma_0$ ✓)' % sf_ins.min())
+im = plot_signed_sigma(
+    ax, sf_ins, f'IDSM contrast: min $u$={np.min(sf_ins - 1.0):.3f}', limit=0.8
+)
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 ax = axes[1, 0]
-im = ax.tripcolor(tri, sigma_con, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=3.5)
-for box in EXAMPLE1_BOXES:
-    cx, cy = box['center']
-    hw = box['half_width']
-    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
-                 edgecolor='k', linewidth=2, linestyle='--'))
-ax.set_aspect('equal')
-ax.set_title(r'True: Conductive ($\sigma=3.0$)')
+im = plot_signed_sigma(
+    ax, sigma_con, r'True contrast: conductive ($u=\sigma-\sigma_0>0$)', limit=0.8
+)
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 ax = axes[1, 1]
-im = ax.pcolormesh(gx, gy, dsm_con['indicator'].T, cmap='hot_r', shading='auto')
-for box in EXAMPLE1_BOXES:
-    cx, cy = box['center']
-    hw = box['half_width']
-    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
-                 edgecolor='cyan', linewidth=2, linestyle='--'))
-ax.set_aspect('equal')
-ax.set_title(r'DSM (conductive): $\eta \geq 0$ always')
+im = plot_indicator(ax, dsm_con, r'DSM: conductive ($\eta\geq0$, same sign)')
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 ax = axes[1, 2]
-im = ax.tripcolor(tri, sf_con, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=3.5)
-for box in EXAMPLE1_BOXES:
-    cx, cy = box['center']
-    hw = box['half_width']
-    ax.add_patch(Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, fill=False,
-                 edgecolor='k', linewidth=2, linestyle='--'))
-ax.set_aspect('equal')
-ax.set_title(r'IDSM: $\sigma_{\max}=%.3f$ ($\sigma > \sigma_0$ ✓)' % sf_con.max())
+im = plot_signed_sigma(
+    ax, sf_con, f'IDSM contrast: max $u$={np.max(sf_con - 1.0):.3f}', limit=0.8
+)
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 fig.suptitle(r'Conductive vs Insulating: DSM Cannot Classify, IDSM Can ($\varepsilon=10\%$)',
@@ -900,7 +915,8 @@ fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
 # True sigma
 ax = axes[0, 0]
-im = ax.tripcolor(tri, sigma_ex2, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=1.5)
+im = ax.tripcolor(tri, sigma_ex2, cmap=CMAP_SIGMA, shading='flat',
+                  norm=sigma_norm(0.3, 1.0))
 for box in EX2_COND_BOXES:
     cx, cy = box['center']
     hw = box['half_width']
@@ -912,7 +928,8 @@ plt.colorbar(im, ax=ax, shrink=0.8)
 
 # Reconstructed sigma
 ax = axes[0, 1]
-im = ax.tripcolor(tri, sf_ex2, cmap='RdBu_r', shading='flat', vmin=0.0, vmax=1.5)
+im = ax.tripcolor(tri, sf_ex2, cmap=CMAP_SIGMA, shading='flat',
+                  norm=sigma_norm(0.3, 1.0))
 for box in EX2_COND_BOXES:
     cx, cy = box['center']
     hw = box['half_width']
@@ -932,7 +949,7 @@ ax.grid(True, alpha=0.3)
 
 # True v
 ax = axes[1, 0]
-im = ax.tripcolor(tri, potential_ex2, cmap='YlOrRd', shading='flat', vmin=0.5, vmax=7.0)
+im = ax.tripcolor(tri, potential_ex2, cmap=CMAP_POTENTIAL, shading='flat', vmin=1.0, vmax=6.0)
 for box in EX2_POT_BOXES:
     cx, cy = box['center']
     hw = box['half_width']
@@ -944,7 +961,7 @@ plt.colorbar(im, ax=ax, shrink=0.8)
 
 # Reconstructed v
 ax = axes[1, 1]
-im = ax.tripcolor(tri, vf_ex2, cmap='YlOrRd', shading='flat', vmin=0.5, vmax=7.0)
+im = ax.tripcolor(tri, vf_ex2, cmap=CMAP_POTENTIAL, shading='flat', vmin=1.0, vmax=1.25)
 for box in EX2_POT_BOXES:
     cx, cy = box['center']
     hw = box['half_width']

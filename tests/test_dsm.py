@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from cooperation.ghy.IDSM.src.dsm import (
+from src.dsm import (
     compute_dsm_indicator,
     discretize_laplace_beltrami,
     compute_scattering_data,
 )
-from cooperation.ghy.IDSM.src.forward_solver import generate_cauchy_data, make_conductivity_example1
-from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
+from src.forward_solver import generate_cauchy_data, make_conductivity_example1
+from src.mesh import generate_elliptic_mesh
 
 
 @pytest.fixture

@@ -1,25 +1,14 @@
 """
 idsm_parabolic.py — Iterative Direct Sampling Method for parabolic inverse problems.
 
-FreeFEM reference implementation detail.
+This module mirrors the parabolic FreeFEM reference programs in ``reference/``
+with NumPy/SciPy/scikit-fem building blocks:
 
-FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
-  FreeFEM reference implementation detail.
- FreeFEM reference implementation detail.
- FreeFEM reference implementation detail.
- FreeFEM reference implementation detail.
- 13. finalize_segment                       : post-while final refinement (.edp L592-642)
- FreeFEM reference implementation detail.
- 15. Example Configs                        : edp_cfg_example_5_{1..5}
- FreeFEM reference implementation detail.
+1. synthesize noisy forward boundary data with a Crank-Nicolson heat solve,
+2. solve the empty-background and adjoint segment problems,
+3. assemble the local dual indicator,
+4. apply the DFP/BFGS low-rank resolver, and
+5. project the indicator to P0 coefficient guesses for each time segment.
 """
 
 from __future__ import annotations
@@ -31,7 +20,7 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
-from .mesh import EllipticMesh
+from .mesh import EllipticMesh, coarse_to_fine_p0, fine_to_coarse_p0
 from .fem_skfem import (
     assemble_stiffness_matrix,
     assemble_mass_matrix,
@@ -47,46 +36,47 @@ from .idsm import LowRankPreconditioner
 
 @dataclass
 class ParabolicConfig:
-    """Algorithm parameters, 1:1 mapped from .edp getARGV defaults.
+    """Algorithm parameters shared by the Section 5 parabolic examples.
 
-    Reference: parabolic_ConductivityMerging.edp L7-31.
+    Defaults follow ``reference/parabolic_ConductivityMerging.edp``. Individual
+    ``edp_cfg_example_5_*`` and ``paper_cfg_example_5_*`` helpers override only
+    the values that differ for each example or for notebook-scale runs.
     """
-    # FreeFEM reference note.
-    cA: float = 1.0  # FreeFEM reference note.
-    cB: float = 0.1  # FreeFEM reference note.
-    vA: float = 1e-10  # FreeFEM reference note.
+
+    # Background and inclusion coefficient values.
+    cA: float = 1.0
+    cB: float = 0.1
+    vA: float = 1e-10
     vB: float = 2e-10         # inclusion potential
     model: str = 'conductivity'  # 'conductivity' / 'potential' / 'double'
 
-    # FreeFEM reference note.
+    # Forward and inverse time grids.
     total_time: float = 10.21
-    forward_dt: float = 0.02  # FreeFEM reference note.
-    delta_t: float = 0.1  # FreeFEM reference note.
-    delta_t_split: int = 6  # FreeFEM reference note.
+    forward_dt: float = 0.02
+    delta_t: float = 0.1
+    delta_t_split: int = 6
 
-    # FreeFEM reference note.
-    n_solve: int = 80  # FreeFEM reference note.
-    n_coarse: int = 80  # FreeFEM reference note.
+    # Mesh-resolution knobs kept for parity with getARGV defaults.
+    n_solve: int = 80
+    n_coarse: int = 80
 
-    # FreeFEM reference note.
-    save_num: int = 10  # FreeFEM reference note.
-    tolerance: float = 0.08  # FreeFEM reference note.
-    forget_scale: float = 0.7  # FreeFEM reference note.
-    noise_level: float = 0.2  # FreeFEM reference note.
+    # IDSM iteration and synthetic-noise controls.
+    save_num: int = 10
+    tolerance: float = 0.08
+    forget_scale: float = 0.7
+    noise_level: float = 0.2
     lowrank: str = 'BFG'       # 'DFP' / 'BFG'
 
-    # FreeFEM reference note.
     data_num: int = 1
 
-    # FreeFEM reference note.
+    # Boundary penalty used in the segment forward solve.
     kappa: float = 1e10
 
-    # FreeFEM reference note.
     max_inner: int = 80
 
     @property
     def inverse_dt(self) -> float:
-        """FreeFEM reference implementation detail."""
+        """Time step for the sub-steps inside one inverse segment."""
         return self.delta_t / self.delta_t_split
 
     @property
@@ -106,15 +96,7 @@ class ParabolicConfig:
 # ============================================================
 
 def trajectory_example_5_1(t: float, traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail.
-
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-
-    Returns
-    -------
-    (cx, cy) : (2,) ndarray
-    """
+    """Moving centers for Example 5.1, copied from ``Traj`` in FreeFEM."""
     result = np.zeros(2)
     if traj_index == 0:
         if t < 3.0:
@@ -144,7 +126,7 @@ def trajectory_example_5_1(t: float, traj_index: int) -> np.ndarray:
 
 
 def radius_example_5_1(traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Ellipse radii for Example 5.1; only trajectories 0 and 1 are active."""
     result = np.zeros(2)
     if traj_index in (0, 1):
         result[0] = 0.2
@@ -156,11 +138,7 @@ def radius_example_5_1(traj_index: int) -> np.ndarray:
 
 
 def c_func_example_5_1(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail.
-
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    """
+    """Conductivity field for Example 5.1: ``cB`` inside either disk, else ``cA``."""
     x = np.asarray(x); y = np.asarray(y)
     cp1 = trajectory_example_5_1(t, 0); cp2 = trajectory_example_5_1(t, 1)
     r1 = radius_example_5_1(0); r2 = radius_example_5_1(1)
@@ -171,10 +149,7 @@ def c_func_example_5_1(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
 
 
 def v_func_example_5_1(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail.
-
-    FreeFEM reference implementation detail.
-    """
+    """Potential field for Example 5.1; this conductivity-only case keeps ``vA``."""
     x = np.asarray(x); y = np.asarray(y)
     cp1 = trajectory_example_5_1(t, 2); cp2 = trajectory_example_5_1(t, 3)
     r1 = radius_example_5_1(2); r2 = radius_example_5_1(3)
@@ -185,12 +160,7 @@ def v_func_example_5_1(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
 
 
 def rg_source(t: float, x: np.ndarray, y: np.ndarray, data_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail.
-
-    Returns
-    -------
-    (n_pts,) ndarray
-    """
+    """Interior source ``RgSource`` used to generate parabolic boundary data."""
     x = np.asarray(x); y = np.asarray(y)
     if data_index == 0:
         return np.sin(t * np.pi / 4) * 25 * np.sin(3 * x) * np.cos(4 * y)
@@ -209,11 +179,7 @@ def bd_source(
     ny: np.ndarray,
     data_index: int,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
-
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    """
+    """Neumann boundary source ``BdSource`` evaluated on boundary nodes."""
     x = np.asarray(x); y = np.asarray(y)
     nx = np.asarray(nx); ny = np.asarray(ny)
     if data_index == 0:
@@ -235,7 +201,7 @@ def bd_source(
 
 
 def initial_data(x: np.ndarray, y: np.ndarray, data_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Initial condition ``InitialData`` for each illumination index."""
     x = np.asarray(x); y = np.asarray(y)
     if data_index == 0:
         return 3.0 + np.sin(3 * x) * np.cos(4 * y)
@@ -278,7 +244,7 @@ def _project_p1_product(mesh: EllipticMesh, u: np.ndarray, v: np.ndarray) -> np.
 
 
 def _boundary_normals(mesh: EllipticMesh, radius: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     n_pts = mesh.n_points
     nx_full = np.zeros(n_pts); ny_full = np.zeros(n_pts)
     bn = mesh.boundary_nodes
@@ -294,18 +260,11 @@ def project_p1_fine_to_coarse(
     coarse_mesh: EllipticMesh,
     field_fine: np.ndarray,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
 
     Parameters
     ----------
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
     field_fine  : ndarray (fine_mesh.n_points,)
 
     Returns
@@ -327,7 +286,7 @@ def project_p1_fine_to_coarse(
     out = np.asarray(out_masked.filled(np.nan))
     bad = ~np.isfinite(out)
 
-    # FreeFEM reference note.
+  
     if bad.any():
         eps = 1e-9
         for _ in range(4):
@@ -344,7 +303,7 @@ def project_p1_fine_to_coarse(
                 break
             eps *= 50.0
 
-    # FreeFEM reference note.
+  
     if bad.any():
         from scipy.spatial import cKDTree
         tree = cKDTree(fine_mesh.points)
@@ -354,6 +313,57 @@ def project_p1_fine_to_coarse(
         out[bad] = field_fine[nn_idx]
 
     return out
+
+
+def _same_mesh(mesh_a: EllipticMesh, mesh_b: EllipticMesh) -> bool:
+    """Return True when two mesh references have identical P0/P1 dimensions."""
+    return (
+        mesh_a is mesh_b
+        or (
+            mesh_a.n_points == mesh_b.n_points
+            and mesh_a.n_triangles == mesh_b.n_triangles
+            and np.allclose(mesh_a.points, mesh_b.points)
+            and np.array_equal(mesh_a.triangles, mesh_b.triangles)
+        )
+    )
+
+
+def _coeff_to_solve_p0(
+    solve_mesh: EllipticMesh,
+    coeff_mesh: EllipticMesh,
+    values: np.ndarray,
+) -> np.ndarray:
+    """Evaluate coarse P0 coefficients on the solve mesh by centroid matching."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.shape == (solve_mesh.n_triangles,):
+        return values
+    if values.shape != (coeff_mesh.n_triangles,):
+        raise ValueError(
+            f"P0 coefficient length {values.shape[0]} does not match "
+            f"solve mesh {solve_mesh.n_triangles} or coeff mesh {coeff_mesh.n_triangles}"
+        )
+    if _same_mesh(solve_mesh, coeff_mesh):
+        return values
+    return coarse_to_fine_p0(solve_mesh, coeff_mesh, values)
+
+
+def _solve_to_coeff_p0(
+    solve_mesh: EllipticMesh,
+    coeff_mesh: EllipticMesh,
+    values: np.ndarray,
+) -> np.ndarray:
+    """Average solve-mesh P0 values onto the coefficient mesh."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.shape == (coeff_mesh.n_triangles,):
+        return values
+    if values.shape != (solve_mesh.n_triangles,):
+        raise ValueError(
+            f"P0 solve value length {values.shape[0]} does not match "
+            f"solve mesh {solve_mesh.n_triangles} or coeff mesh {coeff_mesh.n_triangles}"
+        )
+    if _same_mesh(solve_mesh, coeff_mesh):
+        return values
+    return fine_to_coarse_p0(solve_mesh, coeff_mesh, values)
 
 
 @dataclass
@@ -402,25 +412,18 @@ def synthesize_full_forward(
     v_func: Callable[[float, np.ndarray, np.ndarray, ParabolicConfig], np.ndarray],
     rng: Optional[np.random.Generator] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
         (M/dt + 0.5 K_σ + 0.5 M_V) u^{n+1}
         = (M/dt - 0.5 K_σ - 0.5 M_V) u^n + b(t_mid),
-    FreeFEM reference implementation detail.
 
-    FreeFEM reference implementation detail.
         yData[i] = u_fine(node_i) + noise * |u_fine(node_i)|,
         noise ~ Uniform[-noiseLevel, +noiseLevel].
 
     Returns
     -------
     y_data : ndarray (forward_time_step, data_num, n_pts_fine)
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
     y_omega_clean : ndarray (forward_time_step, data_num, n_pts_fine)
-        FreeFEM reference implementation detail.
     """
     if rng is None:
         rng = np.random.default_rng(42)
@@ -430,23 +433,23 @@ def synthesize_full_forward(
     forward_dt = cfg.forward_dt
     n_steps = int(np.ceil(cfg.total_time / forward_dt)) + 1  # .edp L196
 
-    # FreeFEM reference note.
+  
     centroids = (fine_mesh.points[fine_mesh.triangles[:, 0]]
                  + fine_mesh.points[fine_mesh.triangles[:, 1]]
                  + fine_mesh.points[fine_mesh.triangles[:, 2]]) / 3.0
     cx = centroids[:, 0]; cy = centroids[:, 1]
 
-    M = assemble_mass_matrix(fine_mesh)  # FreeFEM reference note.
+    M = assemble_mass_matrix(fine_mesh)
     M_csc = M.tocsc()
 
-    # FreeFEM reference note.
+  
     y_clean = np.zeros((n_steps, cfg.data_num, n_pts))
     y_data = np.zeros((n_steps, cfg.data_num, n_pts))
 
-    # FreeFEM reference note.
+  
     px = fine_mesh.points[:, 0]; py = fine_mesh.points[:, 1]
 
-    # FreeFEM reference note.
+  
     bn = fine_mesh.boundary_nodes
     bx = px[bn]; by = py[bn]
     br = np.sqrt(bx ** 2 + by ** 2)
@@ -454,12 +457,12 @@ def synthesize_full_forward(
     nx_full[bn] = bx / np.maximum(br, 1e-15)
     ny_full[bn] = by / np.maximum(br, 1e-15)
 
-    # FreeFEM reference note.
+  
     M_bdry = assemble_boundary_mass_matrix(fine_mesh)
     M_bdry_csc = M_bdry.tocsc()
 
     nonlinear = (cfg.model == 'nonlinear')
-    # FreeFEM reference note.
+  
     K_cA_const = assemble_stiffness_matrix(fine_mesh, np.full(n_tri, cfg.cA)) if nonlinear else None
     M_vA_const = assemble_mass_matrix(fine_mesh, np.full(n_tri, cfg.vA)) if nonlinear else None
     K_cA_const_csc = K_cA_const.tocsc() if nonlinear else None
@@ -467,16 +470,16 @@ def synthesize_full_forward(
     tri = fine_mesh.triangles  # (n_tri, 3) for centroid evaluation of P1 → P0
 
     for k in range(cfg.data_num):
-        # FreeFEM reference note.
+      
         u0 = initial_data(px, py, k)
         y_clean[0, k] = u0
-        y_data[0, k] = u0  # FreeFEM reference note.
+        y_data[0, k] = u0
 
         for tIndex in range(n_steps - 1):
             t_mid = tIndex * forward_dt + 0.5 * forward_dt  # .edp L210
             u_prev = y_clean[tIndex, k]
 
-            # FreeFEM reference note.
+          
             f_vec = rg_source(t_mid, px, py, k)
             rhs_vol = M_csc @ f_vec
             g_vec = bd_source(t_mid, px, py, nx_full, ny_full, k)
@@ -538,7 +541,7 @@ def synthesize_full_forward(
 
             y_clean[tIndex + 1, k] = u_next
 
-            # FreeFEM reference note.
+          
             noise = (2.0 * rng.random(n_pts) - 1.0) * cfg.noise_level
             y_data[tIndex + 1, k] = u_next + noise * np.abs(u_next)
 
@@ -555,7 +558,7 @@ def boundary_data_at(
     y_data: np.ndarray,
     forward_dt: float,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
     Parameters
     ----------
@@ -564,7 +567,6 @@ def boundary_data_at(
 
     Returns
     -------
-    FreeFEM reference implementation detail.
     """
     n_steps = y_data.shape[0]
     raw = t / forward_dt
@@ -589,24 +591,20 @@ def init_diag_func(
     n_boundary_samples: int = 200,
     radius: float = 1.0,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
 
     Parameters
     ----------
-    coarse_mesh : EllipticMesh  # FreeFEM reference note.
-    exponent : float = 0.7  # FreeFEM reference note.
-    cutoff : float = 0.01  # FreeFEM reference note.
+    coarse_mesh : EllipticMesh
+    exponent : float = 0.7
+    cutoff : float = 0.01
     n_boundary_samples : int = 200
-    radius : float = 1.0  # FreeFEM reference note.
+    radius : float = 1.0
 
     Returns
     -------
     diag : ndarray (2*n_tri,)
-        FreeFEM reference implementation detail.
     """
     centroids = (coarse_mesh.points[coarse_mesh.triangles[:, 0]]
                  + coarse_mesh.points[coarse_mesh.triangles[:, 1]]
@@ -614,12 +612,12 @@ def init_diag_func(
     cx = centroids[:, 0]; cy = centroids[:, 1]
     n_tri = coarse_mesh.n_triangles
 
-    # FreeFEM reference note.
+  
     theta = np.arange(n_boundary_samples) * 2.0 * np.pi / n_boundary_samples
     sx = radius * np.cos(theta)
     sy = radius * np.sin(theta)
 
-    # FreeFEM reference note.
+  
     d2 = (cx[:, None] - sx[None, :]) ** 2 + (cy[:, None] - sy[None, :]) ** 2
     min_d2 = d2.min(axis=1)
 
@@ -641,11 +639,10 @@ def solve_empty_segment(
     cfg: ParabolicConfig,
     data_index: int,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
     Crank-Nicolson:
         Amatrix u^{j+1} = (M/dt - 0.5 K_cA - 0.5 M_vA) u^j + M f(t_mid) + M_bdry g(t_mid)
-    FreeFEM reference implementation detail.
 
     Returns
     -------
@@ -679,11 +676,9 @@ def solve_adjoint_segment(
     measurement_history: np.ndarray,
     cfg: ParabolicConfig,
 ) -> Tuple[np.ndarray, float]:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
         Amatrix * yDual_new = (M/dt - 0.5 K_cA - 0.5 M_vA) * yDual + M_bdry * yEmptyHistory[j]
-    FreeFEM reference implementation detail.
     normalScale = 1 / Σ_j ∫_∂ residual[j]^2 ds.
 
     In the FreeFEM code the variable named ``measurement`` is overwritten by
@@ -692,7 +687,6 @@ def solve_adjoint_segment(
 
     Parameters
     ----------
-    FreeFEM reference implementation detail.
     measurement_history : ndarray (deltaTsplit, n_pts)
         Original boundary data kept for traceability with the caller.  The
         FreeFEM-compatible normalization below uses ``y_residual_history``.
@@ -743,18 +737,13 @@ def solve_forward_segment(
     *,
     is_first_segment: bool,
     dirichlet_data: Optional[Sequence[np.ndarray]] = None,
+    coeff_mesh: Optional[EllipticMesh] = None,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-      FreeFEM reference implementation detail.
-      FreeFEM reference implementation detail.
                                                   + sigma_curr*(t-t_begin)/(t_end-t_begin)
-      FreeFEM reference implementation detail.
 
-    FreeFEM reference implementation detail.
       LHS += int1d(kappa * u * v),     RHS += int1d(kappa * diriData * v)
-    FreeFEM reference implementation detail.
 
     Returns
     -------
@@ -763,6 +752,7 @@ def solve_forward_segment(
     from scipy.sparse.linalg import spsolve as _spsolve
 
     n_pts = coarse_mesh.n_points
+    coeff_mesh = coarse_mesh if coeff_mesh is None else coeff_mesh
     n_sub = cfg.delta_t_split
     inv_dt = cfg.inverse_dt
     delta_t = cfg.delta_t
@@ -777,18 +767,23 @@ def solve_forward_segment(
     use_kappa = dirichlet_data is not None
     kappa = cfg.kappa if use_kappa else 0.0
     lhs_kappa = (kappa * M_bdry_csc) if use_kappa else None
+    sigma_prev_solve = _coeff_to_solve_p0(coarse_mesh, coeff_mesh, sigma_prev)
+    sigma_curr_solve = _coeff_to_solve_p0(coarse_mesh, coeff_mesh, sigma_curr)
+    v_prev_solve = _coeff_to_solve_p0(coarse_mesh, coeff_mesh, v_prev)
+    v_curr_solve = _coeff_to_solve_p0(coarse_mesh, coeff_mesh, v_curr)
 
     for j in range(n_sub):
         t_mid = t_begin + (j + 0.5) * inv_dt
         if is_first_segment:
-            sigma_at = sigma_curr
-            v_at = v_curr
+            sigma_at = sigma_curr_solve
+            v_at = v_curr_solve
         else:
-            # FreeFEM reference note.
-            w_prev = (t_mid - t_end) / (t_begin - t_end)   # = 1 - (t_mid - t_begin)/delta_t
-            w_curr = (t_mid - t_begin) / (t_end - t_begin)
-            sigma_at = sigma_prev * w_prev + sigma_curr * w_curr
-            v_at = v_prev * w_prev + v_curr * w_curr
+            # FreeFEM uses cGuess[t-1]*(timeNow-timeBegin)/dt
+            #       + cGuess[t]*(timeNow-timeEnd)/(-dt).
+            w_prev = (t_mid - t_begin) / (t_end - t_begin)
+            w_curr = (t_mid - t_end) / (t_begin - t_end)
+            sigma_at = sigma_prev_solve * w_prev + sigma_curr_solve * w_curr
+            v_at = v_prev_solve * w_prev + v_curr_solve * w_curr
 
         K_sig = (0.5 * assemble_stiffness_matrix(coarse_mesh, sigma_at)).tocsc()
         M_v = (0.5 * assemble_mass_matrix(coarse_mesh, v_at)).tocsc()
@@ -816,26 +811,20 @@ def apply_inclusion_projection(
     n_tri: int,
     cfg: ParabolicConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-        [cGrad[], vGrad[]] = eta;  # FreeFEM reference note.
-        if(type == "double" || type == "conductivity")  # FreeFEM reference note.
+        [cGrad[], vGrad[]] = eta;
+        if(type == "double" || type == "conductivity")
             cGuess[tIndex] = max(min(cGrad, 0.0), -0.99/abs(cA-cB)) * abs(cA-cB) + cA;
-        if(type == "double" || type == "potential")  # FreeFEM reference note.
+        if(type == "double" || type == "potential")
             vGuess[tIndex] = max(min(vGrad, 2.0), 0.0)    * abs(vA-vB) + vA;
 
-    FreeFEM reference implementation detail.
 
     Parameters
     ----------
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
 
     Returns
     -------
-    FreeFEM reference implementation detail.
     v_pot : ndarray (n_tri,)  v_k+1 ∈ [vA, vA + 2·sign(vB-vA)·|vB-vA|]
     """
     if eta.shape[0] != 2 * n_tri:
@@ -879,23 +868,16 @@ def compute_zeta_p0(
     y_dual: np.ndarray,
     normal_scale: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
         zetac = 0.5*(Grad(yGuess[k]) + Grad(yLast[k]))'* Grad(yDual[k]) * normalScale[k];
         zetav = 0.5*(yGuess[k] + yLast[k])               * yDual[k]     * normalScale[k];
 
-    FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
                              ``_project_p1_product`` (∫ uv / area = (∑u_i v_i + 9·ū·v̄)/12)
 
     Parameters
     ----------
     coarse_mesh : EllipticMesh
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
     normal_scale: float             1 / Σ ∫∂ meas² ds
 
     Returns
@@ -908,12 +890,12 @@ def compute_zeta_p0(
         if arr.shape != (n_pts,):
             raise ValueError(f"{name} shape {arr.shape} != ({n_pts},)")
 
-    # FreeFEM reference note.
+  
     grad_curr_dot_dual = _project_p1_grad_dot_grad(coarse_mesh, y_curr, y_dual)
     grad_last_dot_dual = _project_p1_grad_dot_grad(coarse_mesh, y_last, y_dual)
     zeta_c = 0.5 * (grad_curr_dot_dual + grad_last_dot_dual) * normal_scale
 
-    # FreeFEM reference note.
+  
     proj_curr = _project_p1_product(coarse_mesh, y_curr, y_dual)
     proj_last = _project_p1_product(coarse_mesh, y_last, y_dual)
     zeta_v = 0.5 * (proj_curr + proj_last) * normal_scale
@@ -938,38 +920,25 @@ def iterate_segment(
     v_prev: np.ndarray,
     *,
     state: dict,
+    coeff_mesh: Optional[EllipticMesh] = None,
 ) -> dict:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
     Parameters
     ----------
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
     cfg           : ParabolicConfig
     seg_index     : tIndex (0-based)
     y_last_per_data : list[np.ndarray (n_pts,)] = yLast[k] = yQGuess[tIndex] (.edp L380)
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
 
     Returns
     -------
     dict {
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
         'normal_scale_per_data' : list[float]
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
     }
     """
+    coeff_mesh = coarse_mesh if coeff_mesh is None else coeff_mesh
     n_pts = coarse_mesh.n_points
-    n_tri = coarse_mesh.n_triangles
+    n_tri = coeff_mesh.n_triangles
     n_sub = cfg.delta_t_split
     inv_dt = cfg.inverse_dt
     delta_t = cfg.delta_t
@@ -984,7 +953,7 @@ def iterate_segment(
     if y_data.shape[1] != cfg.data_num:
         raise ValueError(f"y_data data_num mismatch: {y_data.shape[1]} vs {cfg.data_num}")
 
-    # FreeFEM reference note.
+  
     y_empty_per_data: list = []
     y_dual_per_data: list = []
     normal_scale_per_data: list = []
@@ -995,7 +964,7 @@ def iterate_segment(
             coarse_mesh, ops, y_last_per_data[k], t_begin, cfg, data_index=k,
         )
         y_empty_per_data.append(y_empty_k)
-        # FreeFEM reference note.
+      
         y_guess_per_data.append(y_empty_k[n_sub].copy())
 
     # ---------- Step 2: adjoint with empty residuals (.edp L394-415) -----------
@@ -1016,7 +985,7 @@ def iterate_segment(
         y_dual_per_data.append(y_dual_k)
         normal_scale_per_data.append(ns_k)
 
-    # FreeFEM reference note.
+  
     sigma_curr = np.full(n_tri, cfg.cA)
     v_curr = np.full(n_tri, cfg.vA)
     residuals: list = []
@@ -1025,16 +994,18 @@ def iterate_segment(
     tolerance_save = cfg.tolerance
 
     while True:
-        # FreeFEM reference note.
+      
         zetac = np.zeros(n_tri); zetav = np.zeros(n_tri)
         for k in range(cfg.data_num):
-            zc_k, zv_k = compute_zeta_p0(
+            zc_solve, zv_solve = compute_zeta_p0(
                 coarse_mesh, y_guess_per_data[k], y_last_per_data[k],
                 y_dual_per_data[k], normal_scale_per_data[k],
             )
+            zc_k = _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zc_solve)
+            zv_k = _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zv_solve)
             zetac += zc_k; zetav += zv_k
 
-        # FreeFEM reference note.
+      
         eta = R.apply(np.concatenate([zetac, zetav]))
         sigma_curr, v_curr = apply_inclusion_projection(eta, n_tri, cfg)
 
@@ -1048,6 +1019,7 @@ def iterate_segment(
                 y_last=y_last_per_data[k],
                 t_begin=t_begin, cfg=cfg, data_index=k,
                 is_first_segment=is_first,
+                coeff_mesh=coeff_mesh,
             )
             y_guess_per_data[k] = y_hist_k[n_sub].copy()  # .edp L465: yGuess[k] = yU[deltaTsplit]
 
@@ -1063,13 +1035,15 @@ def iterate_segment(
             )
             y_dual_tilde_per_data.append(y_dual_tilde_k)
 
-        # FreeFEM reference note.
+      
         tilde_zc = np.zeros(n_tri); tilde_zv = np.zeros(n_tri)
         for k in range(cfg.data_num):
-            zc_k, zv_k = compute_zeta_p0(
+            zc_solve, zv_solve = compute_zeta_p0(
                 coarse_mesh, y_guess_per_data[k], y_last_per_data[k],
                 y_dual_tilde_per_data[k], normal_scale_per_data[k],
             )
+            zc_k = _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zc_solve)
+            zv_k = _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zv_solve)
             tilde_zc += zc_k; tilde_zv += zv_k
 
         # ----- 3e: cErr/vErr (.edp L487-495) ----------------------------------
@@ -1084,10 +1058,10 @@ def iterate_segment(
         else:
             v_err = np.zeros(n_tri)
 
-        # FreeFEM reference note.
+      
         store_count = state['store_count']
         slot = store_count % save_num
-        # FreeFEM reference note.
+      
         if slot < len(R.s_store):
             R.s_store[slot] = np.zeros_like(R.s_store[slot])
             R.ry_store[slot] = np.zeros_like(R.ry_store[slot])
@@ -1106,7 +1080,7 @@ def iterate_segment(
             dyk_v = tilde_zv * R.diag[n_tri:]
             scale1 = 0.0
             scale2 = 0.0
-            areas = coarse_mesh.areas
+            areas = coeff_mesh.areas
             if cfg.model in ('double', 'conductivity'):
                 num1 = float(np.sum(np.abs(c_err) * areas))
                 den1 = float(np.sum(np.abs(dyk_c) * areas))
@@ -1144,7 +1118,7 @@ def iterate_segment(
         # ----- 3j: R.update if sk·yk > 0 (.edp L567-572) ----------------------
         if float(sk @ yk) > 0.0:
             R.update(sk, yk, ryk)
-            state['store_count'] = R.count  # FreeFEM reference note.
+            state['store_count'] = R.count
 
         # ----- 3k: residual check (.edp L573-589) -----------------------------
         err = 0.0
@@ -1163,10 +1137,10 @@ def iterate_segment(
             state['tolerance'] = tolerance_save
             break
 
-        # FreeFEM reference note.
+      
         if local_loop % save_num == 0:
             state['store_count'] = 0
-            R.count = 0  # FreeFEM reference note.
+            R.count = 0
             state['tolerance'] *= 1.2
 
         if local_loop >= cfg.max_inner:
@@ -1202,14 +1176,10 @@ def finalize_segment(
     y_dual_per_data: Sequence[np.ndarray],
     normal_scale_per_data: Sequence[float],
     y_guess_per_data: Sequence[np.ndarray],
+    coeff_mesh: Optional[EllipticMesh] = None,
 ) -> dict:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-      FreeFEM reference implementation detail.
-      FreeFEM reference implementation detail.
-      FreeFEM reference implementation detail.
-      FreeFEM reference implementation detail.
 
     Returns
     -------
@@ -1219,20 +1189,23 @@ def finalize_segment(
         'y_guess_per_data' : list[(n_pts,)]
     }
     """
-    n_tri = coarse_mesh.n_triangles
+    coeff_mesh = coarse_mesh if coeff_mesh is None else coeff_mesh
+    n_tri = coeff_mesh.n_triangles
     n_sub = cfg.delta_t_split
     inv_dt = cfg.inverse_dt
     delta_t = cfg.delta_t
     t_begin = seg_index * delta_t
     is_first = (seg_index == 0)
 
-    # FreeFEM reference note.
+  
     zetac = np.zeros(n_tri); zetav = np.zeros(n_tri)
     for k in range(cfg.data_num):
-        zc_k, zv_k = compute_zeta_p0(
+        zc_solve, zv_solve = compute_zeta_p0(
             coarse_mesh, y_guess_per_data[k], y_last_per_data[k],
             y_dual_per_data[k], normal_scale_per_data[k],
         )
+        zc_k = _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zc_solve)
+        zv_k = _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zv_solve)
         zetac += zc_k; zetav += zv_k
 
     # ----- step 2: eta -> projection -----
@@ -1242,7 +1215,7 @@ def finalize_segment(
     # ----- step 3: forward with kappa Dirichlet (.edp L612-640) -----
     new_y_guess: list = []
     for k in range(cfg.data_num):
-        # FreeFEM reference note.
+      
         dir_data = []
         for j in range(n_sub):
             t_mid = t_begin + (j + 0.5) * inv_dt
@@ -1256,6 +1229,7 @@ def finalize_segment(
             t_begin=t_begin, cfg=cfg, data_index=k,
             is_first_segment=is_first,
             dirichlet_data=dir_data,
+            coeff_mesh=coeff_mesh,
         )
         new_y_guess.append(y_hist[n_sub].copy())
 
@@ -1267,7 +1241,6 @@ def finalize_segment(
 
 
 # ============================================================
-# FreeFEM reference note.
 # ============================================================
 
 def compute_zeta_u_p0(
@@ -1277,12 +1250,10 @@ def compute_zeta_u_p0(
     y_dual: np.ndarray,
     normal_scale: float,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
         zetau = 0.5*(abs(yGuess[k])*yGuess[k] + abs(yLast[k])*yLast[k]) * yDual[k] * normalScale[k];
 
-    FreeFEM reference implementation detail.
     """
     n_pts = coarse_mesh.n_points
     for name, arr in (('y_curr', y_curr), ('y_last', y_last), ('y_dual', y_dual)):
@@ -1299,9 +1270,8 @@ def apply_inclusion_projection_u(
     eta_u: np.ndarray,
     cfg: ParabolicConfig,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
     """
     uA = cfg.vA
     uB = cfg.vB
@@ -1315,7 +1285,7 @@ def init_diag_func_u(
     n_boundary_samples: int = 200,
     radius: float = 1.0,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     diag_full = init_diag_func(coarse_mesh, exponent=exponent, cutoff=cutoff,
                                 n_boundary_samples=n_boundary_samples, radius=radius)
     return diag_full[:coarse_mesh.n_triangles].copy()
@@ -1333,15 +1303,14 @@ def solve_forward_segment_nonlinear(
     u_curr_p0: np.ndarray,
     is_first_segment: bool,
     dirichlet_data: Optional[Sequence[np.ndarray]] = None,
+    coeff_mesh: Optional[EllipticMesh] = None,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
     """
     n_pts = coarse_mesh.n_points
     n_tri = coarse_mesh.n_triangles
+    coeff_mesh = coarse_mesh if coeff_mesh is None else coeff_mesh
     n_sub = cfg.delta_t_split
     inv_dt = cfg.inverse_dt
     delta_t = cfg.delta_t
@@ -1357,8 +1326,10 @@ def solve_forward_segment_nonlinear(
     use_kappa = dirichlet_data is not None
     kappa = cfg.kappa if use_kappa else 0.0
     lhs_kappa = (kappa * M_bdry_csc) if use_kappa else None
+    u_prev_solve = _coeff_to_solve_p0(coarse_mesh, coeff_mesh, u_prev_p0)
+    u_curr_solve = _coeff_to_solve_p0(coarse_mesh, coeff_mesh, u_curr_p0)
 
-    # FreeFEM reference note.
+  
     K_cA_const = assemble_stiffness_matrix(coarse_mesh, np.full(n_tri, cfg.cA)).tocsc()
     M_vA_const = assemble_mass_matrix(coarse_mesh, np.full(n_tri, cfg.vA)).tocsc()
 
@@ -1368,11 +1339,11 @@ def solve_forward_segment_nonlinear(
     for j in range(n_sub):
         t_mid = t_begin + (j + 0.5) * inv_dt
         if is_first_segment:
-            u_at = u_curr_p0
+            u_at = u_curr_solve
         else:
-            w_prev = (t_mid - t_end) / (t_begin - t_end)
-            w_curr = (t_mid - t_begin) / (t_end - t_begin)
-            u_at = u_prev_p0 * w_prev + u_curr_p0 * w_curr
+            w_prev = (t_mid - t_begin) / (t_end - t_begin)
+            w_curr = (t_mid - t_end) / (t_begin - t_end)
+            u_at = u_prev_solve * w_prev + u_curr_solve * w_curr
 
         f_vec = rg_source(t_mid, px, py_, data_index)
         g_vec = bd_source(t_mid, px, py_, ops.nx_full, ops.ny_full, data_index)
@@ -1435,16 +1406,18 @@ def iterate_segment_nonlinear(
     u_prev: np.ndarray,
     *,
     state: dict,
+    coeff_mesh: Optional[EllipticMesh] = None,
 ) -> dict:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
     Returns
     -------
     dict {'u_curr', 'y_guess_per_data', 'y_dual_per_data', 'normal_scale_per_data',
           'y_empty_per_data', 'residuals', 'n_inner'}
     """
+    coeff_mesh = coarse_mesh if coeff_mesh is None else coeff_mesh
     n_pts = coarse_mesh.n_points
-    n_tri = coarse_mesh.n_triangles
+    n_tri = coeff_mesh.n_triangles
     n_sub = cfg.delta_t_split
     inv_dt = cfg.inverse_dt
     delta_t = cfg.delta_t
@@ -1455,7 +1428,7 @@ def iterate_segment_nonlinear(
     if y_data.ndim != 3 or y_data.shape[2] != n_pts or y_data.shape[1] != cfg.data_num:
         raise ValueError(f"y_data shape mismatch: got {y_data.shape}")
 
-    # FreeFEM reference note.
+  
     y_empty_per_data: list = []
     y_dual_per_data: list = []
     normal_scale_per_data: list = []
@@ -1485,8 +1458,8 @@ def iterate_segment_nonlinear(
         y_dual_per_data.append(y_dual_k)
         normal_scale_per_data.append(ns_k)
 
-    # FreeFEM reference note.
-    u_curr = np.full(n_tri, cfg.vA)  # FreeFEM reference note.
+  
+    u_curr = np.full(n_tri, cfg.vA)
     residuals: list = []
     local_loop = 0
     save_num = cfg.save_num
@@ -1499,10 +1472,11 @@ def iterate_segment_nonlinear(
         # 3a: zetau via current yGuess + yLast + yDual
         zetau = np.zeros(n_tri)
         for k in range(cfg.data_num):
-            zetau += compute_zeta_u_p0(
+            zu_solve = compute_zeta_u_p0(
                 coarse_mesh, y_guess_per_data[k], y_last_per_data[k],
                 y_dual_per_data[k], normal_scale_per_data[k],
             )
+            zetau += _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zu_solve)
 
         # 3b: eta -> projection
         eta = R.apply(zetau)
@@ -1516,6 +1490,7 @@ def iterate_segment_nonlinear(
                 y_last=y_last_per_data[k], t_begin=t_begin, cfg=cfg, data_index=k,
                 u_prev_p0=u_prev, u_curr_p0=u_curr,
                 is_first_segment=is_first,
+                coeff_mesh=coeff_mesh,
             )
             y_guess_per_data[k] = y_hist_k[n_sub].copy()
 
@@ -1533,15 +1508,16 @@ def iterate_segment_nonlinear(
         # 3d: tildeZetau
         tilde_zu = np.zeros(n_tri)
         for k in range(cfg.data_num):
-            tilde_zu += compute_zeta_u_p0(
+            zu_solve = compute_zeta_u_p0(
                 coarse_mesh, y_guess_per_data[k], y_last_per_data[k],
                 y_dual_tilde_per_data[k], normal_scale_per_data[k],
             )
+            tilde_zu += _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zu_solve)
 
-        # FreeFEM reference note.
+      
         u_err = u_curr.copy()
 
-        # FreeFEM reference note.
+      
         store_count = state['store_count']
         slot = store_count % save_num
         if slot < len(R.s_store):
@@ -1559,7 +1535,7 @@ def iterate_segment_nonlinear(
         # 3h: diag scale (.edp Nonlinear L444-456)
         if (local_loop == 0) or (store_count == 0):
             ryku = tilde_zu * R.diag
-            areas = coarse_mesh.areas
+            areas = coeff_mesh.areas
             num = float(np.sum(np.abs(u_err) * areas))
             den = float(np.sum(np.abs(ryku) * areas))
             scale = (num / den) if den > 0.0 else 0.0
@@ -1570,7 +1546,7 @@ def iterate_segment_nonlinear(
         yk = tilde_zu.copy()
         ryk = R.apply(yk)
 
-        # FreeFEM reference note.
+      
         #   uErr[i]==uA: uErr[i] = min(ryk[i], uA)
         #   uErr[i]==2*uB: uErr[i] = max(ryk[i], 2*uB)
         mask_lo = (u_err == uA)
@@ -1632,14 +1608,13 @@ def finalize_segment_nonlinear(
     y_dual_per_data: Sequence[np.ndarray],
     normal_scale_per_data: Sequence[float],
     y_guess_per_data: Sequence[np.ndarray],
+    coeff_mesh: Optional[EllipticMesh] = None,
 ) -> dict:
     """post-while final refinement for U-recovery (.edp Nonlinear L508-560).
 
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
     """
-    n_tri = coarse_mesh.n_triangles
+    coeff_mesh = coarse_mesh if coeff_mesh is None else coeff_mesh
+    n_tri = coeff_mesh.n_triangles
     n_sub = cfg.delta_t_split
     inv_dt = cfg.inverse_dt
     delta_t = cfg.delta_t
@@ -1648,10 +1623,11 @@ def finalize_segment_nonlinear(
 
     zetau = np.zeros(n_tri)
     for k in range(cfg.data_num):
-        zetau += compute_zeta_u_p0(
+        zu_solve = compute_zeta_u_p0(
             coarse_mesh, y_guess_per_data[k], y_last_per_data[k],
             y_dual_per_data[k], normal_scale_per_data[k],
         )
+        zetau += _solve_to_coeff_p0(coarse_mesh, coeff_mesh, zu_solve)
     eta = R.apply(zetau)
     u_curr = apply_inclusion_projection_u(eta, cfg)
 
@@ -1668,6 +1644,7 @@ def finalize_segment_nonlinear(
             u_prev_p0=u_prev, u_curr_p0=u_curr,
             is_first_segment=is_first,
             dirichlet_data=dir_data,
+            coeff_mesh=coeff_mesh,
         )
         new_y_guess.append(y_hist[n_sub].copy())
 
@@ -1693,34 +1670,32 @@ def run_idsm_parabolic(
     *,
     seed: int = 42,
     verbose: bool = False,
+    solve_mesh: Optional[EllipticMesh] = None,
 ) -> dict:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
     Parameters
     ----------
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
     cfg           : ParabolicConfig
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
 
     Returns
     -------
     dict {
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
-        FreeFEM reference implementation detail.
         'residuals_per_segment': list[list[float]]
         'n_inner_per_segment'  : list[int]
-        FreeFEM reference implementation detail.
         'y_data'               : (n_steps, data_num, n_pts_coarse)
     }
     """
+    coeff_mesh = coarse_mesh
+    solve_mesh = coeff_mesh if solve_mesh is None else solve_mesh
     rng = np.random.default_rng(seed)
 
-    # FreeFEM reference note.
+  
     if verbose:
-        print(f"[run_idsm_parabolic] fine={fine_mesh.n_points} pts / coarse={coarse_mesh.n_points} pts")
+        print(
+            f"[run_idsm_parabolic] data={fine_mesh.n_points} pts / "
+            f"solve={solve_mesh.n_points} pts / coeff={coeff_mesh.n_triangles} tri"
+        )
         print(f"  total_time={cfg.total_time} delta_t={cfg.delta_t} forward_dt={cfg.forward_dt}")
     y_data_fine, y_clean_fine = synthesize_full_forward(
         fine_mesh, cfg, c_func, v_func, rng=rng,
@@ -1730,33 +1705,33 @@ def run_idsm_parabolic(
         print(f"  synthesize done: y_data shape={y_data_fine.shape}"
               f" range=[{y_data_fine.min():.3f},{y_data_fine.max():.3f}]")
 
-    # FreeFEM reference note.
-    n_pts_c = coarse_mesh.n_points
+  
+    n_pts_c = solve_mesh.n_points
     y_data = np.zeros((n_steps, cfg.data_num, n_pts_c))
     for k in range(cfg.data_num):
         for i in range(n_steps):
             y_data[i, k] = project_p1_fine_to_coarse(
-                fine_mesh, coarse_mesh, y_data_fine[i, k],
+                fine_mesh, solve_mesh, y_data_fine[i, k],
             )
 
     # ===== 3. ConstOperators + R₀ =====
-    ops = assemble_const_operators(coarse_mesh, cfg)
+    ops = assemble_const_operators(solve_mesh, cfg)
     is_nonlinear = (getattr(cfg, 'model', None) == 'nonlinear')
     if is_nonlinear:
-        diag = init_diag_func_u(coarse_mesh)
+        diag = init_diag_func_u(coeff_mesh)
     else:
-        diag = init_diag_func(coarse_mesh)
+        diag = init_diag_func(coeff_mesh)
     R = LowRankPreconditioner(diag, method=cfg.lowrank, max_store=cfg.save_num)
 
-    # FreeFEM reference note.
-    px = coarse_mesh.points[:, 0]; py = coarse_mesh.points[:, 1]
+  
+    px = solve_mesh.points[:, 0]; py = solve_mesh.points[:, 1]
     y_quote_history: list = []
     y_init_per_data = []
     for k in range(cfg.data_num):
         y_init_per_data.append(initial_data(px, py, k))
     y_quote_history.append(y_init_per_data[0].copy())  # data 0 used for history slot
 
-    # FreeFEM reference note.
+  
     n_seg = cfg.n_segments
     sigma_history: list = []
     v_history: list = []
@@ -1765,29 +1740,30 @@ def run_idsm_parabolic(
     iou_history: list = []
 
     state = {'store_count': 0, 'tolerance': cfg.tolerance}
-    sigma_prev = np.full(coarse_mesh.n_triangles, cfg.cA)
-    v_prev = np.full(coarse_mesh.n_triangles, cfg.vA)
-    u_prev = np.full(coarse_mesh.n_triangles, cfg.vA)  # U-recovery prev (Ex 5.3 only)
+    sigma_prev = np.full(coeff_mesh.n_triangles, cfg.cA)
+    v_prev = np.full(coeff_mesh.n_triangles, cfg.vA)
+    u_prev = np.full(coeff_mesh.n_triangles, cfg.vA)  # U-recovery prev (Ex 5.3 only)
 
-    centers = (coarse_mesh.points[coarse_mesh.triangles[:, 0]]
-               + coarse_mesh.points[coarse_mesh.triangles[:, 1]]
-               + coarse_mesh.points[coarse_mesh.triangles[:, 2]]) / 3.0
+    centers = (coeff_mesh.points[coeff_mesh.triangles[:, 0]]
+               + coeff_mesh.points[coeff_mesh.triangles[:, 1]]
+               + coeff_mesh.points[coeff_mesh.triangles[:, 2]]) / 3.0
     cx = centers[:, 0]; cy = centers[:, 1]
-    areas = coarse_mesh.areas
+    areas = coeff_mesh.areas
 
-    # FreeFEM reference note.
+  
     y_last_per_data = [y_init_per_data[k].copy() for k in range(cfg.data_num)]
 
     for tIndex in range(n_seg):
         import os as _os
         if is_nonlinear:
             iter_res = iterate_segment_nonlinear(
-                coarse_mesh, ops, R, cfg, tIndex,
+                solve_mesh, ops, R, cfg, tIndex,
                 y_last_per_data=y_last_per_data,
                 y_data=y_data,
                 forward_dt=cfg.forward_dt,
                 u_prev=u_prev,
                 state=state,
+                coeff_mesh=coeff_mesh,
             )
             residuals_per_segment.append(iter_res['residuals'])
             n_inner_per_segment.append(iter_res['n_inner'])
@@ -1796,7 +1772,7 @@ def run_idsm_parabolic(
                 y_guess_per_data = iter_res['y_guess_per_data']
             else:
                 final_res = finalize_segment_nonlinear(
-                    coarse_mesh, ops, R, cfg, tIndex,
+                    solve_mesh, ops, R, cfg, tIndex,
                     y_last_per_data=y_last_per_data,
                     y_data=y_data,
                     forward_dt=cfg.forward_dt,
@@ -1804,34 +1780,36 @@ def run_idsm_parabolic(
                     y_dual_per_data=iter_res['y_dual_per_data'],
                     normal_scale_per_data=iter_res['normal_scale_per_data'],
                     y_guess_per_data=iter_res['y_guess_per_data'],
+                    coeff_mesh=coeff_mesh,
                 )
                 u_curr = final_res['u_curr']
                 y_guess_per_data = final_res['y_guess_per_data']
-            # FreeFEM reference note.
-            sigma_curr = np.full(coarse_mesh.n_triangles, cfg.cA)
+          
+            sigma_curr = np.full(coeff_mesh.n_triangles, cfg.cA)
             v_curr = u_curr
         else:
             # iterate_segment
             iter_res = iterate_segment(
-                coarse_mesh, ops, R, cfg, tIndex,
+                solve_mesh, ops, R, cfg, tIndex,
                 y_last_per_data=y_last_per_data,
                 y_data=y_data,
                 forward_dt=cfg.forward_dt,
                 sigma_prev=sigma_prev, v_prev=v_prev,
                 state=state,
+                coeff_mesh=coeff_mesh,
             )
             residuals_per_segment.append(iter_res['residuals'])
             n_inner_per_segment.append(iter_res['n_inner'])
 
             # finalize_segment (post-while final refinement)
-            # FreeFEM reference note.
+          
             if _os.environ.get('IDSM_SKIP_FINALIZE', '0') == '1':
                 sigma_curr = iter_res['sigma']
                 v_curr = iter_res['v_pot']
                 y_guess_per_data = iter_res['y_guess_per_data']
             else:
                 final_res = finalize_segment(
-                    coarse_mesh, ops, R, cfg, tIndex,
+                    solve_mesh, ops, R, cfg, tIndex,
                     y_last_per_data=y_last_per_data,
                     y_data=y_data,
                     forward_dt=cfg.forward_dt,
@@ -1839,6 +1817,7 @@ def run_idsm_parabolic(
                     y_dual_per_data=iter_res['y_dual_per_data'],
                     normal_scale_per_data=iter_res['normal_scale_per_data'],
                     y_guess_per_data=iter_res['y_guess_per_data'],
+                    coeff_mesh=coeff_mesh,
                 )
                 sigma_curr = final_res['sigma']
                 v_curr = final_res['v_pot']
@@ -1849,10 +1828,10 @@ def run_idsm_parabolic(
         y_quote_history.append(y_guess_per_data[0].copy())  # data 0 history slot
 
         # IoU vs truth at t_end
-        # FreeFEM reference note.
-        # FreeFEM reference note.
-        # FreeFEM reference note.
-        # FreeFEM reference note.
+      
+      
+      
+      
         t_end = (tIndex + 1) * cfg.delta_t
         if cfg.model == 'potential':
             v_true = v_func(t_end, cx, cy, cfg)
@@ -1886,7 +1865,7 @@ def run_idsm_parabolic(
                   f"resid={res_last:.4f} σ∈[{sigma_curr.min():.3f},{sigma_curr.max():.3f}] "
                   f"IoU={iou:.3f}")
 
-        # FreeFEM reference note.
+      
         if is_nonlinear:
             u_prev = u_curr
         else:
@@ -1906,7 +1885,6 @@ def run_idsm_parabolic(
 
 
 # ============================================================
-# FreeFEM reference note.
 # ============================================================
 
 def edp_cfg_example_5_1(noise: float = 0.2) -> ParabolicConfig:
@@ -1929,7 +1907,7 @@ def edp_cfg_example_5_1(noise: float = 0.2) -> ParabolicConfig:
 def ground_truth_p0_example_5_1(
     coarse_mesh: EllipticMesh, t: float, cfg: ParabolicConfig,
 ) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     centers = (coarse_mesh.points[coarse_mesh.triangles[:, 0]]
                + coarse_mesh.points[coarse_mesh.triangles[:, 1]]
                + coarse_mesh.points[coarse_mesh.triangles[:, 2]]) / 3.0
@@ -1938,13 +1916,11 @@ def ground_truth_p0_example_5_1(
 
 
 # ============================================================
-# FreeFEM reference note.
 # ============================================================
 
 def trajectory_example_5_2(t: float, traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
     """
     result = np.zeros(2)
     if traj_index == 0:
@@ -1963,7 +1939,7 @@ def trajectory_example_5_2(t: float, traj_index: int) -> np.ndarray:
 
 
 def c_func_example_5_2(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x); y = np.asarray(y)
     cp1 = trajectory_example_5_2(t, 0); cp2 = trajectory_example_5_2(t, 1)
     dis1 = np.sqrt((x - cp1[0]) ** 2 + (y - cp1[1]) ** 2)
@@ -1973,7 +1949,7 @@ def c_func_example_5_2(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
 
 
 def v_func_example_5_2(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x); y = np.asarray(y)
     cp1 = trajectory_example_5_2(t, 2); cp2 = trajectory_example_5_2(t, 3)
     dis1 = np.sqrt((x - cp1[0]) ** 2 + (y - cp1[1]) ** 2)
@@ -1985,7 +1961,6 @@ def v_func_example_5_2(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
 def edp_cfg_example_5_2(noise: float = 0.05) -> ParabolicConfig:
     """MixedMoving .edp defaults (parabolic_MixedMoving.edp L7-31).
 
-    FreeFEM reference implementation detail.
     forwardDeltat=0.015; vB=15.0 (vs Ex 5.1 vB=2e-10).
     """
     return ParabolicConfig(
@@ -2009,12 +1984,9 @@ def ground_truth_p0_example_5_2(coarse_mesh: EllipticMesh, t: float, cfg: Parabo
 # ============================================================
 # 17. Example 5.3 (Nonlinear): N(y)u = u·y·|y|, p=3 in Eq.2.5
 # ============================================================
-# FreeFEM reference note.
-# FreeFEM reference note.
-# FreeFEM reference note.
 
 def trajectory_example_5_3(t: float, traj_index: int = 0) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     result = np.zeros(2)
     if traj_index == 0:
         result[0] = 0.5 * np.cos(4 * t * np.pi / 24 + np.pi / 4)
@@ -2023,29 +1995,29 @@ def trajectory_example_5_3(t: float, traj_index: int = 0) -> np.ndarray:
 
 
 def u_func_example_5_3(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x); y = np.asarray(y)
     cp = trajectory_example_5_3(t, 0)
     dis = np.sqrt((x - cp[0]) ** 2 + (y - cp[1]) ** 2)
-    # FreeFEM reference note.
+  
     return np.where(dis < 0.2, cfg.vB, cfg.vA)
 
 
 def c_func_example_5_3(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x)
     return np.full_like(x, cfg.cA, dtype=float)
 
 
 def v_func_example_5_3(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     return u_func_example_5_3(t, x, y, cfg)
 
 
 def edp_cfg_example_5_3(noise: float = 0.05) -> ParabolicConfig:
     """Nonlinear .edp defaults (parabolic_Nonlinear.edp L8-31)."""
     return ParabolicConfig(
-        cA=1.0, cB=1.0, vA=1e-10, vB=20.0,  # FreeFEM reference note.
+        cA=1.0, cB=1.0, vA=1e-10, vB=20.0,
         model='nonlinear',
         total_time=0.51, forward_dt=0.02, delta_t=0.1, delta_t_split=6,
         n_solve=200, n_coarse=80,
@@ -2063,13 +2035,11 @@ def ground_truth_p0_example_5_3(coarse_mesh: EllipticMesh, t: float, cfg: Parabo
 
 
 # ============================================================
-# FreeFEM reference note.
 # ============================================================
 
 def trajectory_example_5_4(t: float, traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
     """
     result = np.zeros(2)
     if traj_index in (0, 1):
@@ -2085,7 +2055,7 @@ def trajectory_example_5_4(t: float, traj_index: int) -> np.ndarray:
 
 
 def radius_example_5_4(traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     result = np.zeros(2)
     if traj_index in (0, 1):
         result[0] = 1e-10
@@ -2097,16 +2067,14 @@ def radius_example_5_4(traj_index: int) -> np.ndarray:
 
 
 def c_func_example_5_4(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x)
     return np.full_like(x, cfg.cA, dtype=float)
 
 
 def v_func_example_5_4(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
-    FreeFEM reference implementation detail.
     """
     x = np.asarray(x); y = np.asarray(y)
     cp1 = trajectory_example_5_4(t, 2); cp2 = trajectory_example_5_4(t, 3)
@@ -2117,7 +2085,7 @@ def v_func_example_5_4(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
     v_grow = min(cfg.vA + t * (cfg.vB - cfg.vA) / 6.0, cfg.vB)
     out = np.full_like(x, cfg.vA, dtype=float)
     out = np.where(dis1 < 1.0, v_decay, out)
-    # FreeFEM reference note.
+  
     only_dis2 = (dis1 >= 1.0) & (dis2 < 1.0)
     out = np.where(only_dis2, v_grow, out)
     return out
@@ -2126,7 +2094,6 @@ def v_func_example_5_4(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
 def edp_cfg_example_5_4(noise: float = 0.05) -> ParabolicConfig:
     """PotentialFading .edp defaults (parabolic_PotentialFading.edp L7-31).
 
-    FreeFEM reference implementation detail.
     """
     return ParabolicConfig(
         cA=1.0, cB=1.0 + 1e-10, vA=1e-10, vB=15.0,
@@ -2140,7 +2107,7 @@ def edp_cfg_example_5_4(noise: float = 0.05) -> ParabolicConfig:
 
 
 def ground_truth_v_p0_example_5_4(coarse_mesh: EllipticMesh, t: float, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     centers = (coarse_mesh.points[coarse_mesh.triangles[:, 0]]
                + coarse_mesh.points[coarse_mesh.triangles[:, 1]]
                + coarse_mesh.points[coarse_mesh.triangles[:, 2]]) / 3.0
@@ -2148,13 +2115,11 @@ def ground_truth_v_p0_example_5_4(coarse_mesh: EllipticMesh, t: float, cfg: Para
 
 
 # ============================================================
-# FreeFEM reference note.
 # ============================================================
 
 def trajectory_example_5_5(t: float, traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail.
+    """Matches the corresponding parabolic FreeFEM reference block.
 
-    FreeFEM reference implementation detail.
     """
     result = np.zeros(2)
     if traj_index == 0:
@@ -2170,7 +2135,7 @@ def trajectory_example_5_5(t: float, traj_index: int) -> np.ndarray:
 
 
 def radius_example_5_5(t: float, traj_index: int) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     result = np.zeros(2)
     if traj_index == 0:
         result[0] = 0.2
@@ -2186,7 +2151,7 @@ def radius_example_5_5(t: float, traj_index: int) -> np.ndarray:
 
 
 def c_func_example_5_5(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x); y = np.asarray(y)
     cp1 = trajectory_example_5_5(t, 0); cp2 = trajectory_example_5_5(t, 1)
     r1 = radius_example_5_5(t, 0); r2 = radius_example_5_5(t, 1)
@@ -2197,7 +2162,7 @@ def c_func_example_5_5(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicCon
 
 
 def v_func_example_5_5(t: float, x: np.ndarray, y: np.ndarray, cfg: ParabolicConfig) -> np.ndarray:
-    """FreeFEM reference implementation detail."""
+    """Matches the corresponding parabolic FreeFEM reference block."""
     x = np.asarray(x)
     return np.full_like(x, cfg.vA, dtype=float)
 
@@ -2226,44 +2191,28 @@ def ground_truth_p0_example_5_5(coarse_mesh: EllipticMesh, t: float, cfg: Parabo
 
 
 # ============================================================
-# FreeFEM reference note.
 # ============================================================
 
 def paper_cfg_example_5_1(noise: float = 0.05) -> ParabolicConfig:
-    cfg = edp_cfg_example_5_1(noise=noise)
-    cfg.max_inner = 5
-    cfg.forget_scale = 0.6
-    cfg.tolerance = 0.10
-    return cfg
+    """Paper-style Example 5.1 noise with FreeFEM numerical defaults."""
+    return edp_cfg_example_5_1(noise=noise)
 
 
 def paper_cfg_example_5_2(noise: float = 0.05) -> ParabolicConfig:
-    cfg = edp_cfg_example_5_2(noise=noise)
-    cfg.max_inner = 5
-    cfg.forget_scale = 0.6
-    cfg.tolerance = 0.10
-    return cfg
+    """Paper-style Example 5.2 noise with FreeFEM numerical defaults."""
+    return edp_cfg_example_5_2(noise=noise)
 
 
 def paper_cfg_example_5_3(noise: float = 0.05) -> ParabolicConfig:
-    cfg = edp_cfg_example_5_3(noise=noise)
-    cfg.max_inner = 5
-    cfg.forget_scale = 0.6
-    cfg.tolerance = 0.10
-    return cfg
+    """Paper-style Example 5.3 noise with FreeFEM numerical defaults."""
+    return edp_cfg_example_5_3(noise=noise)
 
 
 def paper_cfg_example_5_4(noise: float = 0.05) -> ParabolicConfig:
-    cfg = edp_cfg_example_5_4(noise=noise)
-    cfg.max_inner = 5
-    cfg.forget_scale = 0.6
-    cfg.tolerance = 0.10
-    return cfg
+    """Paper-style Example 5.4 noise with FreeFEM numerical defaults."""
+    return edp_cfg_example_5_4(noise=noise)
 
 
 def paper_cfg_example_5_5(noise: float = 0.05) -> ParabolicConfig:
-    cfg = edp_cfg_example_5_5(noise=noise)
-    cfg.max_inner = 5
-    cfg.forget_scale = 0.6
-    cfg.tolerance = 0.10
-    return cfg
+    """Paper-style Example 5.5 noise with FreeFEM numerical defaults."""
+    return edp_cfg_example_5_5(noise=noise)

@@ -149,6 +149,33 @@ def test_run_idsm_parabolic_current_api_smoke(small_mesh):
     assert len(out['iou_history']) == cfg.n_segments
 
 
+def test_run_idsm_parabolic_three_mesh_smoke():
+    data = generate_disk_mesh(n_boundary=32)
+    solve = generate_disk_mesh(n_boundary=28)
+    coeff = generate_disk_mesh(n_boundary=20)
+    cfg = edp_cfg_example_5_1(noise=0.0)
+    cfg.total_time = 0.31
+    cfg.delta_t = 0.1
+    cfg.delta_t_split = 2
+    cfg.forward_dt = 0.05
+    cfg.max_inner = 2
+    cfg.tolerance = 10.0
+
+    out = run_idsm_parabolic(
+        coarse_mesh=coeff,
+        fine_mesh=data,
+        solve_mesh=solve,
+        cfg=cfg,
+        c_func=c_func_example_5_1,
+        v_func=v_func_example_5_1,
+        seed=0,
+        verbose=False,
+    )
+    assert out['sigma_history'][0].shape == (coeff.n_triangles,)
+    assert out['v_history'][0].shape == (coeff.n_triangles,)
+    assert out['y_data'].shape[2] == solve.n_points
+
+
 def test_forward_segment_projection_bounds(small_mesh):
     cfg = ParabolicConfig(delta_t=0.1, delta_t_split=2)
     ops = assemble_const_operators(small_mesh, cfg)

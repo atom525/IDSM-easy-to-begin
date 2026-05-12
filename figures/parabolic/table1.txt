@@ -1,9 +1,9 @@
 # Main Parabolic Reproduction Summary
 
 Example    cache               n_seg   inner  IoU_mean  IoU_max  runtime
-5_1        ex_5_1_paper.npz      101    1.13     0.206    0.679    40.9s
-5_1_n10    ex_5_1_n10_paper.npz    101    2.04     0.110    0.288    44.5s
-5_2        ex_5_2_paper.npz      102    1.00     0.312    0.649    53.9s
-5_3        ex_5_3_edp.npz         99    2.24     0.145    0.759    85.1s
-5_4        ex_5_4_edp.npz        102    2.19     0.080    0.721    45.7s
-5_5        ex_5_5_paper.npz       52    1.00     0.315    0.584    20.8s
+5_1        ex_5_1_paper.npz      101    1.10     0.269    0.682    26.6s
+5_1_n10    ex_5_1_n10_paper.npz    101    1.00     0.200    0.509    25.5s
+5_2        ex_5_2_paper.npz      102    1.01     0.329    0.624    34.1s
+5_3        ex_5_3_edp.npz         99    1.63     0.146    0.720   348.3s
+5_4        ex_5_4_edp.npz        102    1.93     0.072    0.649   194.3s
+5_5        ex_5_5_paper.npz       52    1.00     0.348    0.665    21.0s

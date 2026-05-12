@@ -88,13 +88,13 @@ $$\partial_t y - \Delta y + N(y)\,u = f, \qquad \partial_n y = g, \qquad y(\cdot
 where $N$ encodes conductivity ($-\nabla\cdot(u\nabla y)$), potential ($u\,y$), or a double / non-linear mix.
 
 **Three structural differences from the elliptic case:**
-1. **Time segmentation** — the interval $(0, T]$ is split into $n$ segments of length $\delta t$; on each, a backward adjoint $z^n$ replaces the elliptic double-Robin DtN map.
-2. **Backward adjoint PDE** (Eq. 4.1): $-\partial_t z - \Delta z = 0$ with terminal condition $z(\cdot, (n+1)\delta t) = 0$ and Neumann data given by the residual $y_s^{n,d} - y_\emptyset^n$.
-3. **Inter-segment forgetScale damping** $\lambda \in (0, 1)$ on the low-rank state, plus a Dirichlet-penalty hand-off of $y$ between segments to track inclusion motion.
+1. **Time segmentation** — the interval $(0, T]$ is split into segments of length $\delta t$; on each, a backward adjoint $z^n$ replaces the elliptic double-Robin DtN map.
+2. **Backward adjoint PDE** (Eq. 4.6): $-\partial_t z - \Delta z = 0$ with terminal condition $z(\cdot, (n+1)\delta t) = 0$ and boundary residual forcing.
+3. **FreeFEM three-mesh flow** — `ThFine` synthesizes data, `Th` solves the P1 parabolic/adjoint/verification equations, and `ThCoarse` stores the P0 coefficient, low-rank resolver, and reconstruction history.
 
-**Time discretization:** Crank–Nicolson is A-stable, symmetric, and reuses the FEM mass / stiffness assembly of the elliptic backend (`fem_skfem`). The CN operator $A = M/\Delta t + \tfrac{1}{2}K(\sigma) + \tfrac{1}{2}M_v$ is symmetric positive definite (verified in `tests/test_idsm_parabolic.py::test_cn_operator_symmetric_positive`).
+**Time discretization:** Crank–Nicolson is A-stable, symmetric, and reuses the FEM mass / stiffness assembly of the elliptic backend (`fem_skfem`). The CN operator $A = M/\Delta t + \tfrac{1}{2}K(\sigma) + \tfrac{1}{2}M_v$ is symmetric positive definite.
 
-**Module:** `idsm_parabolic.py`. Notebook 05 demonstrates Example 5.1 (`ConductivityMerging`) on a unit-disk mesh with 12 segments at $T = 2.4$, BFG low-rank, $\lambda = 0.7$.
+**Module:** `idsm_parabolic.py`. Notebook 05 documents the Section 5 examples and delegates full reproducible runs to `scripts/run_all_examples.py --mesh-mode edp`, which mirrors `ThFine / Th / ThCoarse` in the original FreeFEM programs.
 
 ---
 

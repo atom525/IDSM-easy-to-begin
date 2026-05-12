@@ -1,13 +1,8 @@
-"""FreeFEM reference implementation detail.
+"""Run and cache the Python parabolic IDSM examples.
 
-FreeFEM reference implementation detail.
-    run_idsm_parabolic(coarse_mesh, fine_mesh, cfg, c_func, v_func, seed, verbose)
-
-FreeFEM reference implementation detail.
-    sigma_history, v_history, y_quote_history,
-    residuals_per_segment, n_inner_per_segment, iou_history,
-    coarse_points, coarse_triangles, coarse_areas, coarse_centroids,
-    FreeFEM reference implementation detail.
+The caches store reconstruction histories, residual traces, IoU values, mesh
+geometry, and configuration scalars so figures can be regenerated without
+rerunning the PDE solves.
 
 Ex 5.3 (Nonlinear) uses the dedicated U-recovery branch in
 ``src.idsm_parabolic``: Newton-Crank-Nicolson forward solves and a single-field
@@ -20,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import numpy as np
 
-from src.mesh import generate_disk_mesh_paper
+from src.mesh import generate_disk_mesh, generate_disk_mesh_paper
 from src.idsm_parabolic import (
     run_idsm_parabolic,
     edp_cfg_example_5_1, edp_cfg_example_5_2, edp_cfg_example_5_3,
@@ -63,8 +58,27 @@ EXAMPLES = {
 }
 
 
+def make_meshes(cfg, mesh_mode: str):
+    """Build the FreeFEM-style ThFine / Th / ThCoarse mesh triplet."""
+    if mesh_mode == 'edp':
+        data = generate_disk_mesh(n_boundary=max(8, int(cfg.n_solve * np.sqrt(2))))
+        solve = generate_disk_mesh(n_boundary=cfg.n_solve)
+        coeff = generate_disk_mesh(n_boundary=cfg.n_coarse)
+    elif mesh_mode == 'paper':
+        data = generate_disk_mesh_paper(target_triangles=13870)
+        solve = generate_disk_mesh_paper(target_triangles=7002)
+        coeff = generate_disk_mesh_paper(target_triangles=1120)
+    elif mesh_mode == 'legacy':
+        data = generate_disk_mesh_paper(target_triangles=7002)
+        solve = generate_disk_mesh_paper(target_triangles=1120)
+        coeff = solve
+    else:
+        raise ValueError(f'unknown mesh_mode={mesh_mode!r}')
+    return data, solve, coeff
+
+
 def cfg_to_dict(cfg):
-    """FreeFEM reference implementation detail."""
+    """Serialize scalar configuration fields into an npz-friendly dict."""
     out = {}
     for k in ('cA', 'cB', 'vA', 'vB', 'model', 'total_time', 'forward_dt',
              'delta_t', 'delta_t_split', 'n_solve', 'n_coarse', 'save_num',
@@ -76,7 +90,7 @@ def cfg_to_dict(cfg):
 
 def run_single(example_id: str, mode: str, noise: float, out_dir: Path,
                total_time_override: float = None, seed: int = 42,
-               verbose: bool = True):
+               verbose: bool = True, mesh_mode: str = 'edp'):
     spec = EXAMPLES[example_id]
     if mode == 'paper':
         cfg = spec['paper_cfg'](noise=noise)
@@ -92,14 +106,17 @@ def run_single(example_id: str, mode: str, noise: float, out_dir: Path,
 
     print(f"\n[{example_id} {spec['name']} | {mode} | noise={noise}] "
           f"total_time={cfg.total_time:.2f} tol={cfg.tolerance} "
-          f"max_inner={cfg.max_inner} forget={cfg.forget_scale} lowrank={cfg.lowrank}")
-    fine = generate_disk_mesh_paper(target_triangles=7002)
-    coarse = generate_disk_mesh_paper(target_triangles=1120)
-    print(f"  mesh: fine {fine.n_triangles} tri / coarse {coarse.n_triangles} tri")
+          f"max_inner={cfg.max_inner} forget={cfg.forget_scale} lowrank={cfg.lowrank} "
+          f"mesh_mode={mesh_mode}")
+    data_mesh, solve_mesh, coeff_mesh = make_meshes(cfg, mesh_mode)
+    print(
+        f"  mesh: data {data_mesh.n_triangles} tri / "
+        f"solve {solve_mesh.n_triangles} tri / coeff {coeff_mesh.n_triangles} tri"
+    )
 
     t0 = time.time()
     res = run_idsm_parabolic(
-        coarse_mesh=coarse, fine_mesh=fine, cfg=cfg,
+        coarse_mesh=coeff_mesh, fine_mesh=data_mesh, solve_mesh=solve_mesh, cfg=cfg,
         c_func=spec['c_func'], v_func=spec['v_func'],
         seed=seed, verbose=verbose,
     )
@@ -111,9 +128,9 @@ def run_single(example_id: str, mode: str, noise: float, out_dir: Path,
     print(f"  IoU max={iou.max():.4f}@{int(iou.argmax())} final={iou[-1]:.4f} "
           f"mean_last20={iou[-20:].mean():.4f}  n_inner mean={ni.mean():.2f}")
 
-    centers = (coarse.points[coarse.triangles[:, 0]]
-               + coarse.points[coarse.triangles[:, 1]]
-               + coarse.points[coarse.triangles[:, 2]]) / 3.0
+    centers = (coeff_mesh.points[coeff_mesh.triangles[:, 0]]
+               + coeff_mesh.points[coeff_mesh.triangles[:, 1]]
+               + coeff_mesh.points[coeff_mesh.triangles[:, 2]]) / 3.0
     npz_path = out_dir / f'ex_{example_id.replace(".","_")}_{mode}.npz'
     np.savez_compressed(
         npz_path,
@@ -124,10 +141,16 @@ def run_single(example_id: str, mode: str, noise: float, out_dir: Path,
                                        dtype=object),
         n_inner_per_segment=np.array(res['n_inner_per_segment']),
         iou_history=iou,
-        coarse_points=coarse.points,
-        coarse_triangles=coarse.triangles,
-        coarse_areas=coarse.areas,
+        coarse_points=coeff_mesh.points,
+        coarse_triangles=coeff_mesh.triangles,
+        coarse_areas=coeff_mesh.areas,
         coarse_centroids=centers,
+        solve_points=solve_mesh.points,
+        solve_triangles=solve_mesh.triangles,
+        mesh_mode=mesh_mode,
+        data_triangles=data_mesh.n_triangles,
+        solve_triangles_count=solve_mesh.n_triangles,
+        coeff_triangles_count=coeff_mesh.n_triangles,
         runtime_seconds=elapsed,
         noise_level=cfg.noise_level,
         example_id=example_id,
@@ -149,6 +172,8 @@ def main():
                         help='Override the example total_time.')
     parser.add_argument('--out-dir', default='results/parabolic')
     parser.add_argument('--quiet', action='store_true')
+    parser.add_argument('--mesh-mode', default='edp', choices=['edp', 'paper', 'legacy'],
+                        help='edp: ThFine/Th/ThCoarse from nSolve; paper: 13870/7002/1120; legacy: old two-mesh fast path.')
     parser.add_argument('--include-ex51-n10', action='store_true',
                         help='Also run Example 5.1 with 10% noise in paper mode.')
     args = parser.parse_args()
@@ -163,7 +188,6 @@ def main():
     t_all = time.time()
     for eid in examples:
         for m in modes:
-            # FreeFEM reference note.
             if args.noise is not None:
                 noise = args.noise
             elif m == 'paper':
@@ -175,6 +199,7 @@ def main():
                     eid, m, noise=noise, out_dir=out_dir,
                     total_time_override=args.total_time,
                     verbose=not args.quiet,
+                    mesh_mode=args.mesh_mode,
                 )
                 iou = np.array(res['iou_history'])
                 summary[f'ex_{eid}_{m}'] = dict(
@@ -197,19 +222,18 @@ def main():
             if args.total_time is not None:
                 cfg.total_time = args.total_time
             print(f"\n[5.1 {spec['name']} | paper | noise=0.10] total_time={cfg.total_time}")
-            fine = generate_disk_mesh_paper(target_triangles=7002)
-            coarse = generate_disk_mesh_paper(target_triangles=1120)
+            data_mesh, solve_mesh, coeff_mesh = make_meshes(cfg, args.mesh_mode)
             t0 = time.time()
             res = run_idsm_parabolic(
-                coarse_mesh=coarse, fine_mesh=fine, cfg=cfg,
+                coarse_mesh=coeff_mesh, fine_mesh=data_mesh, solve_mesh=solve_mesh, cfg=cfg,
                 c_func=spec['c_func'], v_func=spec['v_func'],
                 seed=42, verbose=not args.quiet,
             )
             elapsed = time.time() - t0
             iou = np.array(res['iou_history'])
-            centers = (coarse.points[coarse.triangles[:, 0]]
-                       + coarse.points[coarse.triangles[:, 1]]
-                       + coarse.points[coarse.triangles[:, 2]]) / 3.0
+            centers = (coeff_mesh.points[coeff_mesh.triangles[:, 0]]
+                       + coeff_mesh.points[coeff_mesh.triangles[:, 1]]
+                       + coeff_mesh.points[coeff_mesh.triangles[:, 2]]) / 3.0
             np.savez_compressed(
                 out_dir / 'ex_5_1_n10_paper.npz',
                 sigma_history=np.stack(res['sigma_history']),
@@ -219,10 +243,16 @@ def main():
                     [np.array(r) for r in res['residuals_per_segment']], dtype=object),
                 n_inner_per_segment=np.array(res['n_inner_per_segment']),
                 iou_history=iou,
-                coarse_points=coarse.points,
-                coarse_triangles=coarse.triangles,
-                coarse_areas=coarse.areas,
+                coarse_points=coeff_mesh.points,
+                coarse_triangles=coeff_mesh.triangles,
+                coarse_areas=coeff_mesh.areas,
                 coarse_centroids=centers,
+                solve_points=solve_mesh.points,
+                solve_triangles=solve_mesh.triangles,
+                mesh_mode=args.mesh_mode,
+                data_triangles=data_mesh.n_triangles,
+                solve_triangles_count=solve_mesh.n_triangles,
+                coeff_triangles_count=coeff_mesh.n_triangles,
                 runtime_seconds=elapsed,
                 noise_level=0.10,
                 example_id='5.1', mode='paper_n10',
@@ -241,7 +271,15 @@ def main():
 
     print(f"\n=========== ALL DONE in {time.time()-t_all:.1f}s ===========")
     summary_path = out_dir / 'summary.json'
-    json.dump(summary, open(summary_path, 'w'), indent=2, default=str)
+    if summary_path.exists():
+        try:
+            merged_summary = json.loads(summary_path.read_text())
+        except json.JSONDecodeError:
+            merged_summary = {}
+    else:
+        merged_summary = {}
+    merged_summary.update(summary)
+    summary_path.write_text(json.dumps(merged_summary, indent=2, default=str))
     print(f"summary -> {summary_path}")
 
 

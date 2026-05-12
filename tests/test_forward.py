@@ -3,12 +3,12 @@
 import numpy as np
 import pytest
 
-from cooperation.ghy.IDSM.src.forward_solver import (
+from src.forward_solver import (
     generate_cauchy_data,
     make_conductivity_example1,
     solve_forward,
 )
-from cooperation.ghy.IDSM.src.mesh import generate_elliptic_mesh
+from src.mesh import generate_elliptic_mesh
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def test_background_solution_is_finite(mesh):
 
 def test_background_solution_satisfies_gauge(mesh):
     """Solution with sigma=1 should satisfy ∫_Γ y ds = 0."""
-    from cooperation.ghy.IDSM.src.fem import assemble_boundary_mean_constraint
+    from src.fem import assemble_boundary_mean_constraint
     y = solve_forward(mesh, 1.0, lambda x, y: x)
     B = assemble_boundary_mean_constraint(mesh)
     assert abs(np.dot(B, y)) < 1e-8

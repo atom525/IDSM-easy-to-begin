@@ -9,14 +9,15 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
-from matplotlib.colors import Normalize
+import matplotlib.patheffects as pe
+from matplotlib.colors import Normalize, PowerNorm, TwoSlopeNorm
 
 
 def plot_mesh(mesh, title='Mesh', figsize=(8, 6), save_path=None):
     """Visualize the triangular mesh."""
     fig, ax = plt.subplots(figsize=figsize)
     triang = mtri.Triangulation(mesh.points[:, 0], mesh.points[:, 1], mesh.triangles)
-    ax.triplot(triang, 'k-', linewidth=0.3, alpha=0.5)
+    ax.triplot(triang, color='#202020', linewidth=0.38, alpha=0.65)
     ax.set_aspect('equal')
     ax.set_title(title)
     ax.set_xlabel('$x_1$')
@@ -59,7 +60,8 @@ def plot_field(mesh, values, title='', figsize=(8, 6), cmap='RdBu_r',
             hw = box['half_width']
             color = box.get('color', 'w')
             rect = plt.Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw,
-                                  linewidth=2, edgecolor=color, facecolor='none')
+                                  linewidth=2.5, edgecolor=color, facecolor='none')
+            rect.set_path_effects([pe.Stroke(linewidth=4.0, foreground='black'), pe.Normal()])
             ax.add_patch(rect)
 
     ax.set_aspect('equal')
@@ -89,7 +91,8 @@ def plot_p0_field(mesh, values, title='', figsize=(8, 6), cmap='RdBu_r',
             hw = box['half_width']
             color = box.get('color', 'w')
             rect = plt.Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw,
-                                  linewidth=2, edgecolor=color, facecolor='none')
+                                  linewidth=2.5, edgecolor=color, facecolor='none')
+            rect.set_path_effects([pe.Stroke(linewidth=4.0, foreground='black'), pe.Normal()])
             ax.add_patch(rect)
 
     ax.set_aspect('equal')
@@ -293,14 +296,15 @@ SINGLE_INCLUSION_CIRCLE = [
 # 统一可视化规范 (Phase 1-5 共用)
 # ============================================================
 # 统一 colormap 选择
-CMAP_SIGMA = 'RdBu_r'        # 导电率重建：红=高(背景), 蓝=低(inclusion)
-CMAP_INDICATOR = 'hot_r'     # DSM/IDSM η ∈ [0,1] 指示器
+CMAP_SIGMA = 'viridis'       # 导电率重建：低值深色，高值亮色
+CMAP_SIGNED = 'RdBu_r'       # u = sigma - sigma_0：负值蓝，正值红
+CMAP_INDICATOR = 'magma'     # DSM/IDSM η ∈ [0,1] 指示器：高值亮色
 CMAP_FORWARD = 'RdBu_r'      # 前向解 y(x)
-CMAP_POTENTIAL = 'viridis'   # 势 V 重建
+CMAP_POTENTIAL = 'plasma'    # 势 V 重建：高吸收更亮
 CMAP_CLASSIFY = 'Greys'      # 分类二值图
 
-# 统一 colormap 数值范围 (Example 1: cA=1.0 背景, cB=0.01 inclusion, 与 .edp 一致)
-SIGMA_VMIN_EX1 = 0.01  # = cB
+# 统一 colormap 数值范围 (Example 1: cA=1.0 background, cU=0.3 truth; cB=0.01 is projection lower bound)
+SIGMA_VMIN_EX1 = 0.01  # projection lower bound (FreeFEM cB)
 SIGMA_VMAX_EX1 = 1.0   # = cA
 # Partial / Example 2 high-contrast (cB=0.01 极弱导电):
 SIGMA_VMIN_EX2 = 0.01
@@ -312,9 +316,26 @@ V_VMAX = 30.0
 ETA_VMIN = 0.0
 ETA_VMAX = 1.0
 
-# 真值 inclusion 框样式 (绿色加粗)
-TRUTH_RECT_KW = dict(linewidth=2.5, edgecolor='lime', facecolor='none')
-TRUTH_CIRCLE_KW = dict(linewidth=2.5, edgecolor='lime', facecolor='none')
+# 真值 inclusion 框样式 (亮色 + 黑色描边，保证在深/浅背景上都可见)
+TRUTH_RECT_KW = dict(linewidth=2.8, edgecolor='#baff00', facecolor='none')
+TRUTH_CIRCLE_KW = dict(linewidth=2.8, edgecolor='#baff00', facecolor='none')
+
+
+def sigma_norm(vmin=SIGMA_VMIN_EX1, vmax=SIGMA_VMAX_EX1, gamma=1.45):
+    """Contrast-enhancing normalization for conductivity fields."""
+    return PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax)
+
+
+def signed_contrast_norm(limit=0.8):
+    """Centered normalization for signed contrast u = sigma - sigma_0."""
+    return TwoSlopeNorm(vmin=-limit, vcenter=0.0, vmax=limit)
+
+
+def _outline_artist(artist, stroke='black'):
+    artist.set_path_effects([
+        pe.Stroke(linewidth=artist.get_linewidth() + 1.7, foreground=stroke),
+        pe.Normal(),
+    ])
 
 
 def add_truth_boxes(ax, boxes, kw=None):
@@ -328,6 +349,7 @@ def add_truth_boxes(ax, boxes, kw=None):
         cx, cy = box['center']
         hw = box['half_width']
         rect = plt.Rectangle((cx - hw, cy - hw), 2 * hw, 2 * hw, **kw)
+        _outline_artist(rect)
         ax.add_patch(rect)
 
 
@@ -342,6 +364,7 @@ def add_truth_circles(ax, circles, kw=None):
         cx, cy = c['center']
         r = c['radius']
         circ = plt.Circle((cx, cy), r, **kw)
+        _outline_artist(circ)
         ax.add_patch(circ)
 
 
@@ -355,7 +378,7 @@ def plot_sigma_reconstruction(ax, mesh, sigma, vmin=SIGMA_VMIN_EX1,
     triang = mtri.Triangulation(mesh.points[:, 0], mesh.points[:, 1],
                                   mesh.triangles)
     im = ax.tripcolor(triang, facecolors=sigma, cmap=CMAP_SIGMA,
-                       vmin=vmin, vmax=vmax)
+                       norm=sigma_norm(vmin, vmax))
     if boxes is not None:
         add_truth_boxes(ax, boxes)
     ax.set_aspect('equal')

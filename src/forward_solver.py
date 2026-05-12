@@ -60,7 +60,10 @@ def make_conductivity_example1(mesh):
     """Create true conductivity for Example 1 (EIT).
 
     FreeFEM Example1.edp L13-14:
-      cA = 1.0 (background), cB = 0.01 (inclusion, near-insulator).
+      cA = 1.0 (background), cB = 0.01 (projection lower bound).
+    In the default unknown-coefficient run, Example1.edp L36-39 sets
+      cU = 0.3
+    for the true conductivity inside the inclusions.
       Two square inclusions:
         - center (0.4, 0.2), half-width 0.2
         - center (-0.5, -0.2), half-width 0.2
@@ -68,7 +71,7 @@ def make_conductivity_example1(mesh):
     cx, cy = mesh.centroids[:, 0], mesh.centroids[:, 1]
 
     sigma_background = 1.0
-    sigma_inclusion = 0.01
+    sigma_inclusion = 0.3
 
     in_inclusion1 = square_inclusion(cx, cy, (0.4, 0.2), 0.2)
     in_inclusion2 = square_inclusion(cx, cy, (-0.5, -0.2), 0.2)

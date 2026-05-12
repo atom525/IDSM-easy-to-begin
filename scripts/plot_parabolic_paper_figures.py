@@ -34,9 +34,23 @@ from src.idsm_parabolic import (
     trajectory_example_5_4,
     trajectory_example_5_5,
 )
+from src.plot_style import (
+    CONDUCTIVITY_CMAP,
+    NONLINEAR_CMAP,
+    POTENTIAL_CMAP,
+    POTENTIAL_EDGE,
+    SIGMA_EDGE,
+    add_domain_boundary,
+    add_outline_effect,
+    apply_idsm_plot_style,
+    contrast_norm,
+    format_domain_axis,
+    save_figure,
+)
 
 
 GHOST_R = 1e-6
+apply_idsm_plot_style()
 
 
 def _radii_5_2(_t, traj_index):
@@ -70,20 +84,22 @@ def load_npz(key, mode):
     return np.load(path, allow_pickle=False)
 
 
-def draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, *, edge='red'):
+def draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, *, edge=SIGMA_EDGE):
     for traj_index in idx_tuple:
         center = traj_func(t_now, traj_index)
         radii = radius_func(t_now, traj_index)
         if max(float(radii[0]), float(radii[1])) < GHOST_R:
             continue
-        ax.add_patch(Ellipse(
+        patch = Ellipse(
             (float(center[0]), float(center[1])),
             width=2.0 * float(radii[0]),
             height=2.0 * float(radii[1]),
             fill=False,
             edgecolor=edge,
-            linewidth=1.4,
-        ))
+            linewidth=2.0,
+        )
+        add_outline_effect(patch, stroke="#111111" if edge == POTENTIAL_EDGE else "white")
+        ax.add_patch(patch)
 
 
 def field_for_model(data, model, frame_index):
@@ -94,25 +110,57 @@ def field_for_model(data, model, frame_index):
     return data['sigma_history'][frame_index]
 
 
+def normalize_inhomogeneity(field, background, reference):
+    """Normalize one reconstructed inhomogeneity frame for paper-style heatmaps."""
+    denom = max(abs(float(reference) - float(background)), 1e-300)
+    contrast = np.abs(np.asarray(field, dtype=float) - float(background)) / denom
+    max_contrast = float(np.nanmax(contrast)) if contrast.size else 0.0
+    if max_contrast <= 1e-14:
+        return np.zeros_like(contrast)
+    return np.clip(contrast / max_contrast, 0.0, 1.0)
+
+
+def plot_field(ax, triang, field, *, cmap, vmin, vmax, gamma):
+    return ax.tripcolor(
+        triang,
+        facecolors=field,
+        shading='flat',
+        cmap=cmap,
+        norm=contrast_norm(vmin, vmax, gamma=gamma),
+        rasterized=True,
+    )
+
+
 def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tuple, model):
     data = load_npz(key, mode)
     points = data['coarse_points']
     triangles = data['coarse_triangles']
     triang = Triangulation(points[:, 0], points[:, 1], triangles)
 
-    n_seg = int(data['iou_history'].shape[0])
-    frame_count = min(10, n_seg)
-    frame_idx = np.linspace(0, n_seg - 1, frame_count).astype(int)
     total_time = float(data['cfg_total_time'])
+    delta_t = float(data['cfg_delta_t'])
+    n_seg = int(data['iou_history'].shape[0])
+    target_times = np.arange(1.0, np.floor(total_time) + 1.0, 1.0)
+    frame_idx = []
+    frame_times = []
+    for target_t in target_times:
+        idx = int(round(target_t / delta_t)) - 1
+        if 0 <= idx < n_seg:
+            frame_idx.append(idx)
+            frame_times.append(target_t)
+    if not frame_idx:
+        frame_idx = np.linspace(0, n_seg - 1, min(10, n_seg)).astype(int).tolist()
+        frame_times = [(idx + 1) * delta_t for idx in frame_idx]
+    frame_count = len(frame_idx)
 
     if model == 'double':
         rows = 2
     else:
         rows = 1
-    fig, axes = plt.subplots(rows, frame_count, figsize=(2.0 * frame_count, 2.4 * rows), squeeze=False)
+    fig, axes = plt.subplots(rows, frame_count, figsize=(2.15 * frame_count, 2.55 * rows), squeeze=False)
 
     for col, seg_idx in enumerate(frame_idx):
-        t_now = (seg_idx + 1) * total_time / n_seg
+        t_now = float(frame_times[col])
         if model == 'double':
             sigma = data['sigma_history'][seg_idx]
             potential = data['v_history'][seg_idx]
@@ -122,52 +170,54 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
             v_b = float(data['cfg_vB'])
 
             ax = axes[0, col]
-            ax.tripcolor(triang, facecolors=sigma, shading='flat', cmap='viridis', vmin=c_b, vmax=c_a)
-            draw_inclusions(ax, traj_func, radius_func, t_now, (0, 1), edge='red')
-            ax.set_ylabel('sigma' if col == 0 else '')
+            sigma_show = normalize_inhomogeneity(sigma, c_a, c_b)
+            plot_field(ax, triang, sigma_show, cmap=CONDUCTIVITY_CMAP, vmin=0.0, vmax=1.0, gamma=0.72)
+            draw_inclusions(ax, traj_func, radius_func, t_now, (0, 1), edge=SIGMA_EDGE)
+            ax.set_ylabel('sigma norm.' if col == 0 else '', fontweight='bold')
 
             ax = axes[1, col]
-            ax.tripcolor(triang, facecolors=potential, shading='flat', cmap='magma', vmin=v_a, vmax=max(v_b, v_a + 1e-6))
-            draw_inclusions(ax, traj_func, radius_func, t_now, (2,), edge='cyan')
-            ax.set_ylabel('V' if col == 0 else '')
+            potential_show = normalize_inhomogeneity(potential, v_a, v_b)
+            plot_field(ax, triang, potential_show, cmap=POTENTIAL_CMAP, vmin=0.0, vmax=1.0, gamma=0.45)
+            draw_inclusions(ax, traj_func, radius_func, t_now, (2,), edge=POTENTIAL_EDGE)
+            ax.set_ylabel('V norm.' if col == 0 else '', fontweight='bold')
         else:
             ax = axes[0, col]
             field = field_for_model(data, model, seg_idx)
             if model == 'pot':
                 v_a = float(data['cfg_vA'])
                 v_b = float(data['cfg_vB'])
-                ax.tripcolor(triang, facecolors=field, shading='flat', cmap='magma', vmin=v_a, vmax=max(v_b, v_a + 1e-6))
-                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge='cyan')
-                ax.set_ylabel('V' if col == 0 else '')
+                field_show = normalize_inhomogeneity(field, v_a, v_b)
+                plot_field(ax, triang, field_show, cmap=POTENTIAL_CMAP, vmin=0.0, vmax=1.0, gamma=0.42)
+                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge=POTENTIAL_EDGE)
+                ax.set_ylabel('V norm.' if col == 0 else '', fontweight='bold')
             elif model == 'nonlinear':
                 u_a = float(data['cfg_vA'])
                 u_b = float(data['cfg_vB'])
-                ax.tripcolor(triang, facecolors=field, shading='flat', cmap='viridis',
-                             vmin=u_a, vmax=2.0 * u_b)
-                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge='red')
-                ax.set_ylabel('U' if col == 0 else '')
+                field_show = normalize_inhomogeneity(field, u_a, u_b)
+                plot_field(ax, triang, field_show, cmap=NONLINEAR_CMAP, vmin=0.0, vmax=1.0, gamma=0.50)
+                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge=SIGMA_EDGE)
+                ax.set_ylabel('U norm.' if col == 0 else '', fontweight='bold')
             else:
                 c_a = float(data['cfg_cA'])
                 c_b = float(data['cfg_cB'])
-                ax.tripcolor(triang, facecolors=field, shading='flat', cmap='viridis', vmin=c_b, vmax=c_a)
-                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge='red')
-                ax.set_ylabel('sigma' if col == 0 else '')
+                field_show = normalize_inhomogeneity(field, c_a, c_b)
+                plot_field(ax, triang, field_show, cmap=CONDUCTIVITY_CMAP, vmin=0.0, vmax=1.0, gamma=0.72)
+                draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge=SIGMA_EDGE)
+                ax.set_ylabel('sigma norm.' if col == 0 else '', fontweight='bold')
 
         for ax in axes[:, col]:
-            ax.set_xlim(-1.05, 1.05)
-            ax.set_ylim(-1.05, 1.05)
-            ax.set_aspect('equal')
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_title(f't={t_now:.2f}', fontsize=9)
+            add_domain_boundary(ax)
+            format_domain_axis(ax)
+            ax.set_title(f't={t_now:.2f}', fontsize=9, fontweight='bold')
 
     iou = data['iou_history']
-    fig.suptitle(f'{title}  |  IoU mean={iou.mean():.3f}, max={iou.max():.3f}', fontsize=12)
+    fig.suptitle(f'{title}  |  IoU mean={iou.mean():.3f}, max={iou.max():.3f}',
+                 fontsize=12, fontweight='bold')
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     out_dir = ROOT / 'figures' / 'parabolic'
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+    save_figure(fig, out_path)
     plt.close(fig)
     print(f'saved {out_path}')
 

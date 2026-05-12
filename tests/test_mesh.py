@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cooperation.ghy.IDSM.src.mesh import (
+from src.mesh import (
     _extract_boundary_edges,
     generate_coarse_mesh,
     generate_elliptic_mesh,
