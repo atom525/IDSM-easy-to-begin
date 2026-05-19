@@ -1,0 +1,103 @@
+{
+  "paper": "arXiv:2403.02584v2",
+  "seed": 0,
+  "device": "cuda",
+  "run_at": "2026-05-19 14:05:43",
+  "dsm": {
+    "ex1_sound_hard_circle|ni=1|noise=0.05": {
+      "hit_rate_top2pct": 0.71484375,
+      "peak_location_error": 0.06226097444409851
+    },
+    "ex1_sound_hard_circle|ni=1|noise=0.10": {
+      "hit_rate_top2pct": 0.744140625,
+      "peak_location_error": 0.04447212460292751
+    },
+    "ex2_sound_soft_squares|ni=1|noise=0.05": {
+      "hit_rate_top2pct": 0.42578125,
+      "peak_location_error": 0.7497214123363825
+    },
+    "ex2_sound_soft_squares|ni=1|noise=0.10": {
+      "hit_rate_top2pct": 0.43359375,
+      "peak_location_error": 0.7416585166544872
+    },
+    "ex3_close_medium_squares|ni=1|noise=0.05": {
+      "hit_rate_top2pct": 0.3125,
+      "peak_location_error": 0.1958793899672633
+    },
+    "ex3_close_medium_squares|ni=1|noise=0.10": {
+      "hit_rate_top2pct": 0.30859375,
+      "peak_location_error": 0.1958793899672633
+    },
+    "ex4_medium_ring|ni=1|noise=0.05": {
+      "hit_rate_top2pct": 0.123046875,
+      "peak_location_error": 0.3468825719028346
+    },
+    "ex4_medium_ring|ni=1|noise=0.10": {
+      "hit_rate_top2pct": 0.12109375,
+      "peak_location_error": 0.36467142174400563
+    },
+    "ex4_medium_ring|ni=3|noise=0.05": {
+      "hit_rate_top2pct": 0.12109375,
+      "peak_location_error": 0.3468825719028346
+    },
+    "ex4_medium_ring|ni=3|noise=0.10": {
+      "hit_rate_top2pct": 0.12109375,
+      "peak_location_error": 0.3468825719028346
+    },
+    "ex4_medium_ring|ni=5|noise=0.05": {
+      "hit_rate_top2pct": 0.119140625,
+      "peak_location_error": 0.3468825719028346
+    },
+    "ex4_medium_ring|ni=5|noise=0.10": {
+      "hit_rate_top2pct": 0.119140625,
+      "peak_location_error": 0.3468825719028346
+    }
+  },
+  "dsmdl": {
+    "polygon": {
+      "train_runtime_seconds": {
+        "Ni1": 416.5455434322357,
+        "Ni4": 422.61980724334717
+      },
+      "accuracy": {
+        "Ni=1,delta=0.02": 0.98729736328125,
+        "Ni=1,delta=0.10": 0.97928955078125,
+        "Ni=4,delta=0.02": 0.985972900390625,
+        "Ni=4,delta=0.10": 0.98447998046875
+      }
+    },
+    "mnist_family": {
+      "train_runtime_seconds": {
+        "Ni4": 626.0621418952942,
+        "Ni16": 650.7585780620575
+      },
+      "relative_l2": {
+        "mnist,Ni=4,delta=0.05": 0.09700729352340431,
+        "chinese_like,Ni=4,delta=0.05": 0.13608136260162437,
+        "austria_ring_1,Ni=4,delta=0.05": 0.09491095767508008,
+        "austria_ring_2,Ni=4,delta=0.05": 0.21350978012445562,
+        "mnist,Ni=4,delta=0.10": 0.10506564968904919,
+        "chinese_like,Ni=4,delta=0.10": 0.14377403017059495,
+        "austria_ring_1,Ni=4,delta=0.10": 0.10525762531089276,
+        "austria_ring_2,Ni=4,delta=0.10": 0.20297412696825756,
+        "mnist,Ni=16,delta=0.05": 0.08043344355457141,
+        "chinese_like,Ni=16,delta=0.05": 0.12759932373166888,
+        "austria_ring_1,Ni=16,delta=0.05": 0.0967342609523553,
+        "austria_ring_2,Ni=16,delta=0.05": 0.20937487086651835,
+        "mnist,Ni=16,delta=0.10": 0.0872165573096624,
+        "chinese_like,Ni=16,delta=0.10": 0.13867337096007035,
+        "austria_ring_1,Ni=16,delta=0.10": 0.1022884486296495,
+        "austria_ring_2,Ni=16,delta=0.10": 0.20706985608773013
+      }
+    },
+    "mixed_circle": {
+      "train_runtime_seconds": 678.8561887741089,
+      "metrics": {
+        "Ni=10,delta=0.05,rel_l2": 0.16548961225950032,
+        "Ni=10,delta=0.05,acc": 0.976458740234375,
+        "Ni=10,delta=0.10,rel_l2": 0.18883355284707887,
+        "Ni=10,delta=0.10,acc": 0.974217529296875
+      }
+    }
+  }
+}

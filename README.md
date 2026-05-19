@@ -34,6 +34,7 @@ which covers diffuse optical tomography (DOT, $\sigma=1$, recover $q$) and simul
 | **IDSM** (Full Data) | Paper 1, Algorithm 3.2 | Iterative refinement with regularized DtN map + quasi-Newton |
 | **IDSM** (Partial Data) | Paper 3, Algorithm 5.1 | Data completion + HR-DtN + stabilization-correction |
 | **IDSM** (Parabolic) | Paper 2, Algorithm 4.1 | Time-segmented inversion of moving inclusions via backward adjoint |
+| **Phaseless DSM + DSM-DL** | Paper 4, Section 3-5 | Corrected phaseless data (Eq. 3.11–3.12) and U-Net for inhomogeneous + impenetrable scatterers |
 
 ## Installation
 
@@ -65,7 +66,7 @@ cd IDSM-easy-to-begin/notebooks
 jupyter notebook 01_forward_problem.ipynb   # Phase 1: FEM, mesh, forward solver
 ```
 
-The five notebooks are designed to be followed in order:
+The six notebooks are designed to be followed in order:
 
 | Notebook | Content | Approx. Time |
 |----------|---------|--------------|
@@ -74,6 +75,7 @@ The five notebooks are designed to be followed in order:
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
 | `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), paper-scale Section 5 examples, saved `05_*.png` tutorial figures | ~10–20 min |
+| `06_phaseless_dsmdl.ipynb` | Phaseless DSM (Section 5.1, BIE Dirichlet/Neumann + VIE Lippmann-Schwinger), DSM-DL with U-Net (Section 5.2 polygon/MNIST/mixed-circle), inline Fig.6-10 renderer loading saved checkpoints | ~1 min from cache; full retrain `scripts/run_phaseless_full_repro.py` ~1 h |
 
 Alternatively, you can use the package API directly:
 
@@ -114,6 +116,10 @@ IDSM/
     idsm.py              # Full-data IDSM (Algorithm 3.2)
     idsm_partial.py      # Partial-data IDSM (Algorithm 5.1)
     idsm_parabolic.py    # Parabolic IDSM (Algorithm 4.1, Paper 2)
+    phaseless_scattering.py  # Helmholtz forward (LU Lippmann-Schwinger) + DSM index (Eq. 3.11)
+    phaseless_bie.py     # BIE Dirichlet/Neumann solvers for Section 5.1 impenetrable obstacles
+    phaseless_dsmdl.py   # DSM-DL: datasets, U-Net (paper Fig.1), TV+window-SSIM loss, training/eval
+    phaseless_paper_figs.py  # Shared assemblers used by the script and Notebook 06 for Fig.6-10
     utils.py             # Visualization, distance, IoU metrics
   notebooks/
     01_forward_problem.ipynb     # Phase 1: FEM, mesh, forward solver
@@ -121,6 +127,7 @@ IDSM/
     03_iterative_dsm.ipynb       # Phase 3: IDSM with DtN map
     04_comparative_study.ipynb   # Phase 4: Full comparison
     05_parabolic_idsm.ipynb      # Phase 5: Parabolic IDSM (moving inclusions)
+    06_phaseless_dsmdl.ipynb     # Phase 6: Phaseless DSM + DSM-DL (Helmholtz, U-Net, Fig.2-10)
   tests/
     test_mesh.py             # Mesh area, boundary, coarsening
     test_fem.py              # Stiffness symmetry, mass, Neumann solver
@@ -131,16 +138,21 @@ IDSM/
     test_idsm_partial.py     # Data completion, HR-DtN, lambda
     test_utils.py            # Distance, IoU, grid projection
     test_config.py           # Configuration defaults and env vars
+    test_phaseless_scattering.py  # DSM corrected data shape, noise model, peak diagnostics
+    test_phaseless_dsmdl.py       # U-Net forward shape, loss finite, dataset shape
   reference/
     Example1.edp ... Example5.edp   # FreeFEM reference code
   figures/               # Generated figures from notebooks
     parabolic/           # Paper Section 5 multi-frame reproduction figures
+    06_phaseless/        # Phaseless DSM + DSM-DL paper figures (Fig.2-10)
   results/
     parabolic/           # Reproducible NPZ caches consumed by figures/parabolic
+    phaseless/           # full_summary.json, full_comparison.md, checkpoints/
   scripts/
     run_all_examples.py              # Regenerate Paper Section 5 NPZ caches with ThFine/Th/ThCoarse
     plot_parabolic_paper_figures.py  # Regenerate figures/parabolic from NPZ caches
     regen_docs_figures.py            # Regenerate README/docs figures
+    run_phaseless_full_repro.py      # Phase 6: paper-scale Helmholtz reproduction (Fig.2-10 + checkpoints)
   requirements.txt
   README.md
 ```
@@ -208,6 +220,48 @@ python scripts/plot_parabolic_paper_figures.py
 
 The run commands write numerical caches to `results/parabolic/*.npz`; the plot command reads those caches and refreshes `figures/parabolic/*.png` plus `figures/parabolic/table1.txt`. The NPZ files are not source code, but they are kept so the paper-style figures can be inspected without rerunning the full parabolic experiment every time.
 
+### `src/phaseless_scattering.py` (Paper 4: arXiv:2403.02584)
+- `PhaselessBatchSimulator` -- Vectorized Lippmann-Schwinger forward via batched LU (`torch.linalg.lu_factor` cached per sample, reused across incidences). Supports complex refractive index $n_{\text{soft}}=1+10\,i$ for sound-soft surrogates and pure VIE for medium scatterers. `compute_dsm_inputs(labels, ..., phased=False)` produces either Eq. (3.11) phaseless or Eq. (3.1) phased DSM indices.
+- `run_example_dsm_paper(example_key, noise_level, n_incident, ...)` -- Section 5.1 dispatcher: BIE Dirichlet for sound-soft squares, BIE Neumann for sound-hard circle, VIE for medium scatterers and ring.
+- `add_phaseless_noise`, `corrected_phaseless_data`, `compute_phaseless_dsm_indicator` -- Building blocks for the paper's Eq. (3.11)-(3.12).
+
+### `src/phaseless_bie.py`
+- `boundary_circle`, `boundary_square`, `stack_boundaries` -- Boundary discretizations used by Section 5.1.
+- `solve_sound_soft` -- Single-layer Dirichlet BIE $S\,\varphi = -u_{\text{inc}}$.
+- `solve_sound_hard` -- Indirect single-layer Neumann BIE $(-I/2 + K^T)\,\varphi = -\partial_n u_{\text{inc}}$.
+- `evaluate_total_at` -- Reconstruct the total field at the receiver ring from the boundary density.
+
+### `src/phaseless_dsmdl.py`
+- `DatasetConfig`, `TrainingConfig` -- Strict paper-protocol settings (wavelength, receiver geometry, $N_i$, $n_{\text{soft}}$, batch / epochs / LR schedule).
+- `build_dataset` / `build_dataset_with_norm` -- Generate the polygon, MNIST (official train/test split), and mixed-circle labels and the matching DSM indicator inputs.
+- `UNetDSMDL(in_channels, out_channels=1, base_channels=64, depth=4)` -- U-Net mirroring paper Fig.1 (64-128-256-512-1024).
+- `dsmdl_loss` -- Eq. (4.1) $\text{MSE} + 0.5\,\text{TV}(X) + 0.5(1-\text{SSIM}_{11\times 11}(X,Y))$.
+- `BalancedPolygonBatchSampler`, `make_polygon_dataloader` -- 5+5 medium/soft per-batch sampler (paper §5.2.1.1).
+- `train_unet`, `predict`, `threshold_to_classes`, `pixel_accuracy`, `relative_l2_error` -- Training loop and Eq. (5.3)/(5.4) metrics.
+- `save_model_checkpoint`, `load_model_checkpoint` -- Persist trained networks for fast reuse.
+
+### `src/phaseless_paper_figs.py`
+- Shared assemblers for paper Fig.6–Fig.10. Both `scripts/run_phaseless_full_repro.py` and `notebooks/06_phaseless_dsmdl.ipynb` import from here, so the layout stays identical between the offline run and the inline notebook view.
+- `load_case_from_checkpoint(path, in_channels, device)` -- Rehydrate a model + dataset metadata from `.pt` for figure rendering.
+- `render_and_save_all(ckpt_dir, out_fig, seed, device)` -- Convenience entry that regenerates all DSM-DL paper figures from checkpoints.
+
+### Phase 6 reproduction artifacts
+
+The strict run is driven by a single script and produces every paper output (Fig.2–Fig.10, Table 1, Table 2, Section 5.2.3 metrics, and the trained checkpoints):
+
+```bash
+# Strict paper-protocol reproduction. ~60 minutes on an A100.
+conda run -n IDSM python scripts/run_phaseless_full_repro.py
+```
+
+It writes:
+
+- `results/phaseless/full_summary.json` and `results/phaseless/full_comparison.md` (Table 1, Table 2, mixed-circle metrics vs paper),
+- `results/phaseless/checkpoints/{polygon_Ni1, polygon_Ni4, mnist_Ni4, mnist_Ni16, mixed_circle_Ni10}.pt`,
+- `figures/06_phaseless/{full_fig2_4_examples1_3, full_fig5_ring_ni_sweep, fig6_polygon_recon, fig7_mnist_recon, fig8_chinese_recon, fig9_austria_recon, fig10_mixed_recon}.png`.
+
+Notebook 06 §6 then renders Fig.6–Fig.10 inline from those checkpoints in well under a minute, without retraining.
+
 ### `src/dsm.py`
 - `compute_dsm_indicator(mesh, cauchy_data, gamma, ...)` -- DSM indicator $\eta(x)$ (Eq. 2.8)
 - `discretize_laplace_beltrami(mesh, gamma)` -- $(-\Delta_\Gamma)^\gamma$ eigendecomposition
@@ -248,6 +302,7 @@ The run commands write numerical caches to `results/parabolic/*.npz`; the plot c
 | `03_iterative_dsm.ipynb` | 3 | Regularized DtN map, Algorithm 3.2, DFP/BFG, convergence analysis |
 | `04_comparative_study.ipynb` | 4 | DSM vs IDSM, partial data, damping factor, ablation, noise sweep |
 | `05_parabolic_idsm.ipynb` | 5 | Crank-Nicolson forward, backward adjoint (Eq. 4.6), Algorithm 4.1, live runs for Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) |
+| `06_phaseless_dsmdl.ipynb` | 6 | Helmholtz forward, phaseless DSM (Eq. 3.11–3.12), BIE Dirichlet/Neumann for Section 5.1, U-Net DSM-DL (Eq. 4.1, Fig.1), Fig.2–10 reproduction with checkpoint cache |
 
 ## Configuration
 
@@ -296,9 +351,12 @@ A: Yes. Set `IDSM_FEM_LEGACY=1` as an environment variable. The adapter layer in
 
 4. B. Jin, F. Wang, J. Zou, "An iterative direct sampling method for reconstructing moving inhomogeneities in parabolic problems," 2025. [arXiv:2511.08197](https://arxiv.org/abs/2511.08197)
 
+5. J. Ning, F. Han, J. Zou, "A direct sampling method and its integration with deep learning for inverse scattering problems with phaseless data," *SIAM J. Sci. Comput.*, 2025. [arXiv:2403.02584](https://arxiv.org/abs/2403.02584)
+
 **FreeFEM reference code**:
 - Elliptic: [github.com/RaulWangfr/IDSM-elliptic](https://github.com/RaulWangfr/IDSM-elliptic)
 - Parabolic: [github.com/RaulWangfr/IDSM-parabolic](https://github.com/RaulWangfr/IDSM-parabolic)
+- Phaseless DSM-DL: no public author repository identified; Phase 6 is a paper-faithful re-implementation.
 
 ## License
 

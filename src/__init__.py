@@ -73,6 +73,24 @@ from .config import (
     DoubleIDSMConfig,
     Notebook04Config,
 )
+from .phaseless_scattering import (
+    PhaselessDSMConfig,
+    batch_run_examples,
+    compute_multi_incidence_indicator,
+    compute_phaseless_dsm_indicator,
+    corrected_phaseless_data,
+    example_specs,
+    run_example_dsm,
+)
+from .phaseless_dsmdl import (
+    DatasetConfig,
+    TrainingConfig,
+    UNetDSMDL,
+    build_dataset,
+    dsmdl_loss,
+    make_dataset_tensors,
+    train_unet,
+)
 
 __all__ = [
     # mesh
@@ -145,4 +163,20 @@ __all__ = [
     "PartialIDSMConfig",
     "DoubleIDSMConfig",
     "Notebook04Config",
+    # phaseless scattering
+    "PhaselessDSMConfig",
+    "example_specs",
+    "corrected_phaseless_data",
+    "compute_phaseless_dsm_indicator",
+    "compute_multi_incidence_indicator",
+    "run_example_dsm",
+    "batch_run_examples",
+    # phaseless dsmdl
+    "DatasetConfig",
+    "TrainingConfig",
+    "UNetDSMDL",
+    "build_dataset",
+    "make_dataset_tensors",
+    "dsmdl_loss",
+    "train_unet",
 ]
