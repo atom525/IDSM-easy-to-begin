@@ -736,6 +736,147 @@ class PhaselessBatchSimulator:
         n_complex_const = torch.tensor(self.n_soft, dtype=torch.complex64, device=self.device)
         return torch.where(soft_mask, n_complex_const, n_real)
 
+    # ------------------------------------------------------------------
+    # Strict BIE Dirichlet + VIE Born-superposition path
+    # ------------------------------------------------------------------
+
+    def _build_scatterer_boundary(
+        self, meta: dict, n_per_object: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        from . import phaseless_bie as bie
+
+        geom = meta.get("geom")
+        if geom == "circle":
+            center = meta["center"]
+            radius = float(meta["radius"])
+            return bie.boundary_circle(center, radius, n_per_object)
+        if geom == "polygon":
+            verts = np.asarray(meta["vertices"], dtype=np.float64)
+            n_sides = max(verts.shape[0], 1)
+            per_side = max(8, int(np.ceil(n_per_object / n_sides)))
+            return bie.boundary_polygon(verts, per_side)
+        raise ValueError(f"Unsupported geometry: {geom}")
+
+    def _u_sc_soft_at_recv(self, meta: dict, angle: float, n_per_object: int) -> np.ndarray:
+        """Single-scatterer sound-soft Dirichlet BIE scattered field at receivers."""
+        from . import phaseless_bie as bie
+
+        pts, _normals, lengths = self._build_scatterer_boundary(meta, n_per_object)
+        phi = bie.solve_sound_soft(pts, lengths, self.k, angle)
+        G_r_b = bie._green_2d(self.recv_pts_np, pts, self.k)
+        return ((G_r_b * lengths[None, :]) @ phi).astype(np.complex64)
+
+    def _u_sc_medium_at_recv_batch(
+        self,
+        medium_only_labels: torch.Tensor,
+        angle: float,
+    ) -> torch.Tensor:
+        n_field_real = self._resize_to_forward(medium_only_labels)
+        n_fwd_complex = n_field_real.to(torch.complex64).reshape(
+            medium_only_labels.shape[0], -1
+        )
+        contrast = (self.k ** 2) * (n_fwd_complex * n_fwd_complex - 1.0)
+        out_chunks: list[torch.Tensor] = []
+        B = contrast.shape[0]
+        u_inc_fwd, _u_inc_r = self._get_incident(angle)
+        for s in range(0, B, self.solve_batch):
+            e = min(s + self.solve_batch, B)
+            c_sub = contrast[s:e]
+            LU, piv = self._lu_factor_batch(c_sub)
+            rhs = u_inc_fwd[None, :, None].expand(e - s, -1, 1).contiguous()
+            u_total = torch.linalg.lu_solve(LU, piv, rhs).squeeze(-1)
+            cu_final = c_sub * u_total
+            u_sc_r = (cu_final @ self.G_recv.T) * self.fwd_dA
+            out_chunks.append(u_sc_r)
+        return torch.cat(out_chunks, dim=0)
+
+    def _rasterize_soft_mask(self, meta: dict, H: int, W: int) -> torch.Tensor:
+        yy, xx = torch.meshgrid(
+            torch.linspace(-self.extent, self.extent, H, device=self.device),
+            torch.linspace(-self.extent, self.extent, W, device=self.device),
+            indexing="ij",
+        )
+        if meta["geom"] == "circle":
+            cx, cy = meta["center"]
+            r = float(meta["radius"])
+            return ((xx - float(cx)) ** 2 + (yy - float(cy)) ** 2) <= (r * r)
+        if meta["geom"] == "polygon":
+            verts = np.asarray(meta["vertices"], dtype=np.float64)
+            mask_np = _point_in_polygon_grid(verts, H, W, self.extent)
+            return torch.from_numpy(mask_np).to(self.device)
+        raise ValueError(f"Unsupported geometry: {meta['geom']}")
+
+    def _u_total_with_meta(
+        self,
+        labels: np.ndarray,
+        metas: list[list[dict]],
+        angle: float,
+        n_per_object: int,
+    ) -> torch.Tensor:
+        """Born superposition: VIE medium contribution + BIE Dirichlet soft contribution + u_inc."""
+        B, H, W = labels.shape
+        labels_t = torch.from_numpy(labels.astype(np.float32)).to(self.device)
+        medium_only = labels_t.clone()
+        for i, sample_meta in enumerate(metas):
+            for m in sample_meta:
+                if m["kind"] == "soft":
+                    mask = self._rasterize_soft_mask(m, H, W)
+                    medium_only[i][mask] = 1.0
+        u_sc_medium_recv = self._u_sc_medium_at_recv_batch(medium_only, angle)
+        u_sc_soft_recv = torch.zeros_like(u_sc_medium_recv)
+        for i, sample_meta in enumerate(metas):
+            for m in sample_meta:
+                if m["kind"] != "soft":
+                    continue
+                u_sc_i = self._u_sc_soft_at_recv(m, angle, n_per_object=n_per_object)
+                u_sc_soft_recv[i] += torch.from_numpy(u_sc_i).to(self.device)
+        _, u_inc_r = self._get_incident(angle)
+        return u_sc_medium_recv + u_sc_soft_recv + u_inc_r[None, :]
+
+    def compute_dsm_inputs_with_meta(
+        self,
+        labels: np.ndarray,
+        metas: list[list[dict]],
+        *,
+        n_incident: int,
+        noise_level: float,
+        seed: int,
+        W_norm: float | None = None,
+        input_scale: float = 2.0,
+        phased: bool = False,
+        n_per_object: int = 240,
+    ) -> tuple[np.ndarray, float]:
+        """Strict BIE Dirichlet (paper Eq. 2.3) + VIE Born-superposition DSM inputs."""
+        if labels.ndim != 3:
+            raise ValueError(f"labels must have shape (B, H, W), got {labels.shape}")
+        B, H, Wd = labels.shape
+        if (H, Wd) != (self.scan_grid_size, self.scan_grid_size):
+            raise ValueError(
+                f"labels spatial size must be {self.scan_grid_size}x{self.scan_grid_size}, got {(H, Wd)}"
+            )
+        if len(metas) != B:
+            raise ValueError(f"metas length {len(metas)} != labels batch {B}")
+
+        rng = np.random.default_rng(int(seed))
+        angles = (
+            np.pi / 4.0
+            + 2.0 * np.pi * np.arange(n_incident) / max(n_incident, 1)
+        ).astype(np.float64)
+        indicator_fn = self._phased_indicator if phased else self._phaseless_indicator
+
+        out = np.zeros((B, n_incident, H, Wd), dtype=np.float32)
+        for ci, ang in enumerate(angles):
+            total_r = self._u_total_with_meta(labels, metas, float(ang), n_per_object)
+            ind = indicator_fn(total_r, float(ang), noise_level, rng)
+            out[:, ci] = ind.reshape(B, H, Wd).detach().cpu().numpy()
+
+        if W_norm is None:
+            W = float(np.max(out)) + 1e-12
+        else:
+            W = float(W_norm)
+        out *= float(input_scale) / W
+        return out, W
+
     def compute_dsm_inputs(
         self,
         labels: np.ndarray,
@@ -911,6 +1052,25 @@ def run_example_dsm_paper(
         "seed": seed,
         "is_impenetrable": impenetrable,
     }
+
+
+def _point_in_polygon_grid(verts: np.ndarray, H: int, W: int, extent: float) -> np.ndarray:
+    """Boolean mask of (H, W) grid points lying inside the closed polygon."""
+    ys = np.linspace(-extent, extent, H)
+    xs = np.linspace(-extent, extent, W)
+    YY, XX = np.meshgrid(ys, xs, indexing="ij")
+    inside = np.zeros_like(XX, dtype=bool)
+    n_v = verts.shape[0]
+    j = n_v - 1
+    for i in range(n_v):
+        yi = verts[i, 1]; xi = verts[i, 0]
+        yj = verts[j, 1]; xj = verts[j, 0]
+        cond = ((yi > YY) != (yj > YY)) & (
+            XX < (xj - xi) * (YY - yi) / (yj - yi + 1e-18) + xi
+        )
+        inside = np.where(cond, ~inside, inside)
+        j = i
+    return inside
 
 
 def make_phaseless_simulator(

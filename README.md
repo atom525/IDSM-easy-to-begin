@@ -151,7 +151,7 @@ IDSM/
   scripts/
     run_all_examples.py              # Regenerate Paper Section 5 NPZ caches with ThFine/Th/ThCoarse
     plot_parabolic_paper_figures.py  # Regenerate figures/parabolic from NPZ caches
-    regen_docs_figures.py            # Regenerate README/docs figures
+    run_nb04_figures.py              # Regenerate NB04 comparative-study figures (figures/04_comparative/04_*.png)
     run_phaseless_full_repro.py      # Phase 6: paper-scale Helmholtz reproduction (Fig.2-10 + checkpoints)
   requirements.txt
   README.md
@@ -205,7 +205,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 
 ### Parabolic Reproduction Artifacts
 
-Notebook 05 produces tutorial figures directly under `figures/05_*.png`. The paper-style multi-frame plots are generated from strict three-mesh Python caches:
+Notebook 05 produces tutorial figures directly under `figures/05_parabolic/05_*.png`. The paper-style multi-frame plots are generated from strict three-mesh Python caches:
 
 ```bash
 # Main paper-noise caches, including Example 5.1 at 5% and 10% noise.
@@ -221,7 +221,7 @@ python scripts/plot_parabolic_paper_figures.py
 The run commands write numerical caches to `results/parabolic/*.npz`; the plot command reads those caches and refreshes `figures/parabolic/*.png` plus `figures/parabolic/table1.txt`. The NPZ files are not source code, but they are kept so the paper-style figures can be inspected without rerunning the full parabolic experiment every time.
 
 ### `src/phaseless_scattering.py` (Paper 4: arXiv:2403.02584)
-- `PhaselessBatchSimulator` -- Vectorized Lippmann-Schwinger forward via batched LU (`torch.linalg.lu_factor` cached per sample, reused across incidences). Supports complex refractive index $n_{\text{soft}}=1+10\,i$ for sound-soft surrogates and pure VIE for medium scatterers. `compute_dsm_inputs(labels, ..., phased=False)` produces either Eq. (3.11) phaseless or Eq. (3.1) phased DSM indices.
+- `PhaselessBatchSimulator` -- Hybrid forward solver: medium scatterers go through a batched Lippmann-Schwinger LU solve (`torch.linalg.lu_factor` cached per sample, reused across incidences), while sound-soft scatterers ($u=0$ on $\partial D$, paper Eq. 2.3) are dispatched to the Dirichlet **boundary-integral equation** in `phaseless_bie.py`. Mixed-circle scenes use Born superposition (medium VIE field + per-soft-scatterer BIE field). Both `compute_dsm_inputs(labels, ...)` (legacy complex-$n$ surrogate) and `compute_dsm_inputs_with_meta(labels, metas, ...)` (strict BIE+VIE Born) yield either Eq. (3.11) phaseless or Eq. (3.1) phased DSM indices.
 - `run_example_dsm_paper(example_key, noise_level, n_incident, ...)` -- Section 5.1 dispatcher: BIE Dirichlet for sound-soft squares, BIE Neumann for sound-hard circle, VIE for medium scatterers and ring.
 - `add_phaseless_noise`, `corrected_phaseless_data`, `compute_phaseless_dsm_indicator` -- Building blocks for the paper's Eq. (3.11)-(3.12).
 

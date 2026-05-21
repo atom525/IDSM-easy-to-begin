@@ -57,7 +57,7 @@ mesh = generate_elliptic_mesh(n_boundary=cfg.mesh.n_boundary)
 print(f"Mesh: {mesh.n_points} nodes, {mesh.n_triangles} triangles, "
       f"{len(mesh.boundary_nodes)} boundary nodes")
 
-fig_dir = os.path.join(os.path.dirname(__file__), '..', 'figures')
+fig_dir = os.path.join(os.path.dirname(__file__), '..', 'figures', '04_comparative')
 os.makedirs(fig_dir, exist_ok=True)
 
 tri = plt.matplotlib.tri.Triangulation(

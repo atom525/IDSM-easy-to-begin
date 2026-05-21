@@ -172,6 +172,8 @@ def _train_case(
     cfg_kwargs.update(extra_cfg_kwargs or {})
     dcfg_train = DatasetConfig(**cfg_kwargs)
 
+    t_data0 = time.time()
+    print(f"  [{time.strftime('%H:%M:%S')}] {dataset_kind} Ni={n_incident}: generating {train_n} training samples ...", flush=True)
     x_train_np, y_train_np, W_norm = build_dataset_with_norm(
         dataset_kind,
         n_samples=train_n,
@@ -180,14 +182,15 @@ def _train_case(
         mnist_split="train",
         phased=phased_training,
     )
+    print(f"  [{time.strftime('%H:%M:%S')}] {dataset_kind} Ni={n_incident}: data gen done in {time.time()-t_data0:.1f}s, W_norm={W_norm:.3e}", flush=True)
     x_train, y_train = make_dataset_tensors(x_train_np, y_train_np)
     if dataset_kind == "polygon":
         train_loader, val_loader = make_polygon_dataloader(
-            x_train, y_train, batch_size=batch_size, val_fraction=0.1, seed=seed
+            x_train, y_train, batch_size=batch_size, val_fraction=0.0, seed=seed
         )
     else:
         train_loader, val_loader = make_dataloaders(
-            x_train, y_train, batch_size=batch_size, val_fraction=0.1, seed=seed
+            x_train, y_train, batch_size=batch_size, val_fraction=0.0, seed=seed
         )
     model = UNetDSMDL(in_channels=n_incident, out_channels=1, base_channels=base_channels)
     tcfg = TrainingConfig(
@@ -276,15 +279,45 @@ def _eval_mixed(model, dcfg_train: DatasetConfig, W_norm: float, *, test_n: int,
 
 # ---------------- Paper Fig.6-10 reconstruction grids ----------------
 
-def _predict_on_labels(model, labels: np.ndarray, *, dcfg_train: DatasetConfig, W_norm: float, seed_test: int, delta: float, device: str, batch_size: int) -> np.ndarray:
+def _predict_on_labels(
+    model,
+    labels: np.ndarray,
+    *,
+    dcfg_train: DatasetConfig,
+    W_norm: float,
+    seed_test: int,
+    delta: float,
+    device: str,
+    batch_size: int,
+    metas: list[list[dict]] | None = None,
+) -> np.ndarray:
+    """Forward-solve DSM inputs for ``labels`` and run the model.
+
+    When ``metas`` is provided we use the strict BIE Dirichlet + VIE Born-
+    superposition path (paper Eq. 2.3 for soft scatterers, Eq. 2.4 VIE for
+    medium scatterers). Otherwise we fall back to the legacy complex-n VIE
+    surrogate (still valid for medium-only labels such as OOD/MNIST).
+    """
     dcfg_test = replace(dcfg_train, seed=seed_test)
-    inputs, _ = compute_strict_dsm_inputs(
-        labels.astype(np.float32),
-        cfg=dcfg_test,
-        noise_level=delta,
-        seed=seed_test,
-        W_norm=W_norm,
-    )
+    if metas is not None:
+        from src.phaseless_dsmdl import compute_strict_dsm_inputs_with_meta
+
+        inputs, _ = compute_strict_dsm_inputs_with_meta(
+            labels.astype(np.float32),
+            metas,
+            cfg=dcfg_test,
+            noise_level=delta,
+            seed=seed_test,
+            W_norm=W_norm,
+        )
+    else:
+        inputs, _ = compute_strict_dsm_inputs(
+            labels.astype(np.float32),
+            cfg=dcfg_test,
+            noise_level=delta,
+            seed=seed_test,
+            W_norm=W_norm,
+        )
     x_t, _ = make_dataset_tensors(inputs, labels)
     return predict(model, x_t, device=device, batch_size=batch_size)
 
@@ -328,12 +361,15 @@ def _save_recon_grid(
 
 
 def _save_polygon_fig6(out_path: Path, models: dict[int, dict], *, seed: int, device: str, mnist_download: bool) -> None:
+    from src.phaseless_dsmdl import build_labels_with_meta as _build_labels_with_meta
+
     pool_cfg = DatasetConfig(image_size=64, n_incident=1, seed=seed + 7000, device=device, mnist_download=mnist_download)
-    pool_labels = build_labels("polygon", n_samples=40, cfg=pool_cfg)
+    pool_labels, pool_metas = _build_labels_with_meta("polygon", n_samples=40, cfg=pool_cfg)
     medium_idx = [i for i in range(40) if float(np.max(pool_labels[i])) > 1.5]
     soft_idx = [i for i in range(40) if float(np.max(pool_labels[i])) < 1.5]
     selected = medium_idx[:3] + soft_idx[:2]
     truth_labels = pool_labels[selected]
+    truth_metas = [pool_metas[i] for i in selected]
 
     row_predictions: dict[str, np.ndarray] = {}
     row_order: list[str] = []
@@ -348,6 +384,7 @@ def _save_polygon_fig6(out_path: Path, models: dict[int, dict], *, seed: int, de
                 delta=delta,
                 device=device,
                 batch_size=10,
+                metas=truth_metas,
             )
             label = f"Ni={ni}, delta={int(delta * 100)}%"
             row_predictions[label] = preds
@@ -435,12 +472,15 @@ def _save_ood_grid(
 
 
 def _save_mixed_fig10(out_path: Path, case: dict, *, seed: int, device: str, mnist_download: bool) -> None:
+    from src.phaseless_dsmdl import build_labels_with_meta as _build_labels_with_meta
+
     pool_cfg = DatasetConfig(
         image_size=64, n_incident=10, seed=seed + 10000, device=device,
         mnist_download=mnist_download, receiver_radius=8.0, n_receivers=180,
     )
-    pool_labels = build_labels("mixed_circle", n_samples=12, cfg=pool_cfg)
+    pool_labels, pool_metas = _build_labels_with_meta("mixed_circle", n_samples=12, cfg=pool_cfg)
     truth_labels = pool_labels[:5]
+    truth_metas = pool_metas[:5]
 
     row_predictions: dict[str, np.ndarray] = {}
     row_order: list[str] = []
@@ -453,6 +493,7 @@ def _save_mixed_fig10(out_path: Path, case: dict, *, seed: int, device: str, mni
             delta=delta,
             device=device,
             batch_size=20,
+            metas=truth_metas,
         )
         label = f"Ni=10, delta={int(delta * 100)}%"
         row_predictions[label] = preds
@@ -667,7 +708,13 @@ def run(args: argparse.Namespace) -> dict:
         "dsmdl": {},
     }
 
+    def _log(msg: str) -> None:
+        ts = time.strftime("%H:%M:%S")
+        print(f"[{ts}] {msg}", flush=True)
+
+    _log("== Section 5.1 DSM figures start")
     _section51_dsm(summary, seed=args.seed, out_fig=out_fig)
+    _log("== Section 5.1 done")
 
     ckpt_dir = out_res / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -678,6 +725,7 @@ def run(args: argparse.Namespace) -> dict:
     poly_runtime: dict[str, float] = {}
     poly_cases: dict[int, dict] = {}
     for ni in (1, 4):
+        _log(f"== Section 5.2.1 polygon Ni={ni} train start (train_n={poly_cfg['train_n']}, epochs={poly_cfg['epochs']})")
         case = _train_case(
             dataset_kind="polygon",
             n_incident=ni,
@@ -692,6 +740,7 @@ def run(args: argparse.Namespace) -> dict:
             },
             mnist_download=args.mnist_download,
         )
+        _log(f"== polygon Ni={ni} train done in {case['runtime_seconds']:.1f}s")
         poly_runtime[f"Ni{ni}"] = case["runtime_seconds"]
         save_model_checkpoint(
             ckpt_dir / f"polygon_Ni{ni}.pt",
@@ -734,6 +783,7 @@ def run(args: argparse.Namespace) -> dict:
     austria_1, austria_2 = _draw_austria_like_set(64)
     mnist_cases: dict[int, dict] = {}
     for ni in (4, 16):
+        _log(f"== Section 5.2.2 MNIST Ni={ni} train start (train_n={mnist_cfg['train_n']}, epochs={mnist_cfg['epochs']})")
         case = _train_case(
             dataset_kind="mnist",
             n_incident=ni,
@@ -748,6 +798,7 @@ def run(args: argparse.Namespace) -> dict:
             },
             mnist_download=args.mnist_download,
         )
+        _log(f"== MNIST Ni={ni} train done in {case['runtime_seconds']:.1f}s")
         mnist_runtime[f"Ni{ni}"] = case["runtime_seconds"]
         save_model_checkpoint(
             ckpt_dir / f"mnist_Ni{ni}.pt",
@@ -827,6 +878,7 @@ def run(args: argparse.Namespace) -> dict:
     # Section 5.2.3 mixed-circle (Ni=10, receiver radius 8, 180 receivers)
     mix_cfg = {"train_n": 20000, "test_n": 200, "batch": 20, "epochs": 30}
     mix_metrics: dict[str, float] = {}
+    _log(f"== Section 5.2.3 mixed_circle Ni=10 train start (train_n={mix_cfg['train_n']}, epochs={mix_cfg['epochs']})")
     case = _train_case(
         dataset_kind="mixed_circle",
         n_incident=10,

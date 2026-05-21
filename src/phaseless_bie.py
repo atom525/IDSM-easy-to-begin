@@ -40,6 +40,41 @@ def boundary_circle(center: tuple[float, float], radius: float, n: int) -> tuple
     return pts, normals, lengths
 
 
+def boundary_polygon(vertices: np.ndarray, n_per_side: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Discretize a closed polygon boundary into evenly spaced sample points.
+
+    Parameters
+    ----------
+    vertices : (N_v, 2) array of ordered (CCW) polygon vertices.
+    n_per_side : number of quadrature points to place on each polygon edge.
+    """
+    if vertices.shape[0] < 3:
+        raise ValueError(f"polygon requires >= 3 vertices, got {vertices.shape[0]}")
+    pts_list: list[np.ndarray] = []
+    normals_list: list[np.ndarray] = []
+    lengths_list: list[np.ndarray] = []
+    n_v = vertices.shape[0]
+    for i in range(n_v):
+        c0 = vertices[i]
+        c1 = vertices[(i + 1) % n_v]
+        edge = c1 - c0
+        L = float(np.linalg.norm(edge))
+        if L < 1e-12:
+            continue
+        tangent = edge / L
+        # Outward normal: rotate tangent by -90 deg assuming CCW polygon.
+        outward = np.array([tangent[1], -tangent[0]])
+        t = (np.arange(n_per_side) + 0.5) / n_per_side
+        side_pts = (1.0 - t)[:, None] * c0[None, :] + t[:, None] * c1[None, :]
+        pts_list.append(side_pts)
+        normals_list.append(np.tile(outward, (n_per_side, 1)))
+        lengths_list.append(np.full(n_per_side, L / n_per_side))
+    pts = np.concatenate(pts_list, axis=0)
+    normals = np.concatenate(normals_list, axis=0)
+    lengths = np.concatenate(lengths_list, axis=0)
+    return pts, normals, lengths
+
+
 def boundary_square(center: tuple[float, float], half_w: float, n_per_side: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     cx, cy = center
     corners = np.array(

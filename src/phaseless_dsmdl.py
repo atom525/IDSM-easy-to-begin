@@ -28,6 +28,9 @@ from torchvision import datasets
 
 from .phaseless_scattering import PhaselessBatchSimulator
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_MNIST_ROOT = str(_REPO_ROOT / "data" / "mnist")
+
 
 Tensor = torch.Tensor
 
@@ -83,7 +86,7 @@ class DatasetConfig:
     solve_batch: int = 8
     input_scale: float = 2.0
     seed: int = 0
-    mnist_root: str = "data/mnist"
+    mnist_root: str = _DEFAULT_MNIST_ROOT
     mnist_download: bool = True
     device: str = "cuda"
     mnist_rotation_deg: float = 180.0
@@ -135,41 +138,108 @@ def generate_polygon_labels(
     n_samples: int,
     cfg: DatasetConfig,
 ) -> np.ndarray:
-    """Generate mixed polygon labels with values in {0, 1, 3}."""
+    """Generate mixed polygon labels with values in {0, 1, 3} (labels only)."""
+    labels, _ = generate_polygon_labels_with_meta(n_samples, cfg)
+    return labels
+
+
+def generate_polygon_labels_with_meta(
+    n_samples: int,
+    cfg: DatasetConfig,
+) -> tuple[np.ndarray, list[list[dict]]]:
+    """Same as ``generate_polygon_labels`` but also returns per-sample scatterer metadata.
+
+    Each entry of the returned list is a list of one dict describing the polygon
+    (since paper §5.2.1 places exactly one polygon per sample). The dict has
+    ``kind`` ('medium' or 'soft'), ``geom`` ('polygon') and ``vertices`` in
+    physical coordinates :math:`[-1, 1]^2` ordered counter-clockwise.
+    """
     if n_samples <= 0:
         raise ValueError(f"n_samples must be positive, got {n_samples}")
     size = cfg.image_size
     rng = _rng(cfg.seed)
     labels = np.ones((n_samples, size, size), dtype=np.float32)
+    metas: list[list[dict]] = []
+    half = size / 2.0
+    extent = 1.0
+
+    def _to_phys(px: float, py: float) -> tuple[float, float]:
+        # Pixel (px, py) with origin at top-left in image array,
+        # but our mask drawing uses (cx, cy) interpreted in PIL's drawing space
+        # (x = column, y = row from top). For consistency with how the labels
+        # are interpreted on the [-1, 1]^2 simulator grid, we keep the same
+        # affine map used by simulator: x = (col / (size-1)) * 2 - 1,
+        # y = (row / (size-1)) * 2 - 1. PIL drawing uses y from top, but we
+        # treat label[i, j] = (row=i, col=j) and the simulator builds grid
+        # from np.linspace, so both share the same orientation.
+        x_phys = (px / (size - 1)) * 2.0 - 1.0
+        y_phys = (py / (size - 1)) * 2.0 - 1.0
+        return x_phys, y_phys
 
     for i in range(n_samples):
         n_sides = int(rng.integers(3, 7))
-        # Physical radius U(0.3,0.5) on [-1,1]^2 maps to pixel radius r * (size/2).
         radius = float(rng.uniform(0.30, 0.50)) * size * 0.50
         cx = float(rng.uniform(radius + 2.0, size - radius - 2.0))
         cy = float(rng.uniform(radius + 2.0, size - radius - 2.0))
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
         mask = _draw_polygon_mask(size, n_sides, radius, (cx, cy), angle)
-
         is_medium = bool(rng.integers(0, 2))
         labels[i][mask > 0.5] = 3.0 if is_medium else 0.0
-    return labels
+        # Build CCW vertex list in physical coordinates matching the PIL drawing.
+        verts_px: list[tuple[float, float]] = []
+        for j in range(n_sides):
+            theta = angle + 2.0 * np.pi * j / n_sides
+            verts_px.append((cx + radius * np.cos(theta), cy + radius * np.sin(theta)))
+        verts_phys = np.array([list(_to_phys(px, py)) for px, py in verts_px], dtype=np.float64)
+        # Ensure CCW ordering via signed area.
+        area2 = sum(
+            (verts_phys[(k + 1) % n_sides, 0] - verts_phys[k, 0])
+            * (verts_phys[(k + 1) % n_sides, 1] + verts_phys[k, 1])
+            for k in range(n_sides)
+        )
+        if area2 > 0:
+            # shoelace > 0 means clockwise in image-style y-down coordinates;
+            # reverse to obtain CCW in standard math orientation.
+            verts_phys = verts_phys[::-1]
+        metas.append([
+            {
+                "kind": "medium" if is_medium else "soft",
+                "geom": "polygon",
+                "n_value": 3.0 if is_medium else 0.0,
+                "vertices": verts_phys,
+            }
+        ])
+    return labels, metas
 
 
 def generate_mixed_circle_labels(
     n_samples: int,
     cfg: DatasetConfig,
 ) -> np.ndarray:
-    """Generate mixed-circle labels as in paper Section 5.2.3."""
+    """Generate mixed-circle labels as in paper Section 5.2.3 (labels only)."""
+    labels, _ = generate_mixed_circle_labels_with_meta(n_samples, cfg)
+    return labels
+
+
+def generate_mixed_circle_labels_with_meta(
+    n_samples: int,
+    cfg: DatasetConfig,
+) -> tuple[np.ndarray, list[list[dict]]]:
+    """Paper §5.2.3 mixed-circle dataset with per-circle metadata for strict forwards."""
     if n_samples <= 0:
         raise ValueError(f"n_samples must be positive, got {n_samples}")
     size = cfg.image_size
     rng = _rng(cfg.seed)
     labels = np.ones((n_samples, size, size), dtype=np.float32)
+    metas: list[list[dict]] = []
+
+    def _to_phys(px: float, py: float) -> tuple[float, float]:
+        return (px / (size - 1)) * 2.0 - 1.0, (py / (size - 1)) * 2.0 - 1.0
 
     for i in range(n_samples):
         n_obj = int(rng.integers(1, 4))
         centers: list[tuple[float, float, float]] = []
+        sample_meta: list[dict] = []
         for _ in range(n_obj):
             for _try in range(80):
                 radius = float(rng.uniform(0.20, 0.30) * size * 0.50)
@@ -188,10 +258,22 @@ def generate_mixed_circle_labels(
             mask = _draw_circle_mask(size, (cx, cy), radius)
             if bool(rng.integers(0, 2)):
                 value = float(rng.uniform(1.5, 3.0))
+                kind = "medium"
             else:
                 value = 0.0
+                kind = "soft"
             labels[i][mask > 0.5] = value
-    return labels
+            cx_phys, cy_phys = _to_phys(cx, cy)
+            r_phys = radius / (size - 1) * 2.0
+            sample_meta.append({
+                "kind": kind,
+                "geom": "circle",
+                "n_value": value,
+                "center": (cx_phys, cy_phys),
+                "radius": r_phys,
+            })
+        metas.append(sample_meta)
+    return labels, metas
 
 
 def generate_mnist_circle_labels(
@@ -278,6 +360,32 @@ def generate_mnist_circle_labels(
         c_circle = float(rng.uniform(1.2, 1.7))
         labels[i][mask_circle] = c_circle
     return labels
+
+
+def compute_strict_dsm_inputs_with_meta(
+    labels: np.ndarray,
+    metas: list[list[dict]],
+    *,
+    cfg: DatasetConfig,
+    noise_level: float,
+    seed: int,
+    W_norm: float | None = None,
+    phased: bool = False,
+    n_per_object: int = 240,
+) -> tuple[np.ndarray, float]:
+    """Strict BIE Dirichlet + VIE Born-superposition path (paper Eq. 2.3)."""
+    simulator = get_simulator(cfg)
+    return simulator.compute_dsm_inputs_with_meta(
+        labels,
+        metas,
+        n_incident=cfg.n_incident,
+        noise_level=float(noise_level),
+        seed=int(seed),
+        W_norm=W_norm,
+        input_scale=cfg.input_scale,
+        phased=phased,
+        n_per_object=n_per_object,
+    )
 
 
 def compute_strict_dsm_inputs(
@@ -548,10 +656,15 @@ def make_polygon_dataloader(
     y: Tensor,
     *,
     batch_size: int,
-    val_fraction: float = 0.1,
+    val_fraction: float = 0.0,
     seed: int = 0,
 ) -> tuple[DataLoader, DataLoader]:
-    """Build train/val loaders with 5+5 medium/soft batches for polygon."""
+    """Build polygon dataloader(s) with 5+5 medium/soft batch sampling.
+
+    Paper §5.2.1 uses **all** training samples for training (no validation
+    split). Pass ``val_fraction > 0`` only if you want to set aside an
+    in-sample monitoring set; the strict reproduction script keeps it at 0.
+    """
     if x.shape[0] != y.shape[0]:
         raise ValueError("x and y batch size mismatch")
     if batch_size % 2 != 0:
@@ -560,12 +673,16 @@ def make_polygon_dataloader(
     medium_mask = (y_np.max(axis=1) > 1.5)
     soft_mask = ~medium_mask
     n = x.shape[0]
-    n_val = max(2, int(np.floor(n * val_fraction)))
     idx = np.arange(n)
     rng = _rng(seed)
     rng.shuffle(idx)
-    val_idx = idx[:n_val]
-    train_idx = idx[n_val:]
+    if val_fraction > 0:
+        n_val = max(2, int(np.floor(n * val_fraction)))
+        val_idx = idx[:n_val]
+        train_idx = idx[n_val:]
+    else:
+        val_idx = idx[: max(2, batch_size)]
+        train_idx = idx
 
     train_medium = [int(i) for i in train_idx if medium_mask[i]]
     train_soft = [int(i) for i in train_idx if soft_mask[i]]
@@ -584,7 +701,7 @@ def make_dataloaders(
     y: Tensor,
     *,
     batch_size: int,
-    val_fraction: float = 0.1,
+    val_fraction: float = 0.0,
     seed: int = 0,
 ) -> tuple[DataLoader, DataLoader]:
     """Split tensors into train/val loaders (random batches)."""
@@ -610,7 +727,13 @@ def train_unet(
     val_loader: DataLoader,
     cfg: TrainingConfig,
 ) -> dict:
-    """Train UNet with paper-style LR schedule."""
+    """Train UNet for ``cfg.epochs`` epochs with the paper-style LR schedule.
+
+    Paper §5.2 does not mention a validation hold-out: training runs through
+    all examples for 30 epochs and the **final** weights are kept. We therefore
+    do not perform best-checkpoint selection; ``val_loader`` is used only as a
+    cheap monitoring signal and may be empty.
+    """
     torch.manual_seed(cfg.seed)
     device = torch.device(cfg.device)
     model = model.to(device)
@@ -625,7 +748,6 @@ def train_unet(
         gamma=cfg.lr_gamma,
     )
     history = {"train_loss": [], "val_loss": [], "lr": []}
-    best = {"state_dict": None, "val_loss": np.inf}
 
     for _epoch in range(cfg.epochs):
         model.train()
@@ -661,22 +783,11 @@ def train_unet(
                 val_losses.append(float(loss.item()))
         scheduler.step()
 
-        train_mean = float(np.mean(train_losses)) if train_losses else np.nan
-        val_mean = float(np.mean(val_losses)) if val_losses else np.nan
-        history["train_loss"].append(train_mean)
-        history["val_loss"].append(val_mean)
+        history["train_loss"].append(float(np.mean(train_losses)) if train_losses else np.nan)
+        history["val_loss"].append(float(np.mean(val_losses)) if val_losses else np.nan)
         history["lr"].append(float(optimizer.param_groups[0]["lr"]))
 
-        if np.isfinite(val_mean) and val_mean < best["val_loss"]:
-            best["val_loss"] = val_mean
-            best["state_dict"] = {
-                k: v.detach().cpu().clone()
-                for k, v in model.state_dict().items()
-            }
-
-    if best["state_dict"] is not None:
-        model.load_state_dict(best["state_dict"])
-    history["best_val_loss"] = float(best["val_loss"])
+    history["final_val_loss"] = history["val_loss"][-1] if history["val_loss"] else float("nan")
     return history
 
 
@@ -750,6 +861,24 @@ def build_labels(
     raise ValueError(f"Unsupported dataset kind: {kind}")
 
 
+def build_labels_with_meta(
+    kind: Literal["polygon", "mnist", "mixed_circle"],
+    *,
+    n_samples: int,
+    cfg: DatasetConfig,
+    mnist_split: str = "train",
+) -> tuple[np.ndarray, list[list[dict]] | None]:
+    """Generate labels and (when applicable) per-sample scatterer metadata."""
+    if kind == "polygon":
+        return generate_polygon_labels_with_meta(n_samples, cfg)
+    if kind == "mixed_circle":
+        return generate_mixed_circle_labels_with_meta(n_samples, cfg)
+    if kind == "mnist":
+        # MNIST labels are continuous medium-only ⇒ no obstacle metadata required.
+        return generate_mnist_circle_labels(n_samples, cfg, split=mnist_split), None
+    raise ValueError(f"Unsupported dataset kind: {kind}")
+
+
 def build_dataset_with_norm(
     kind: Literal["polygon", "mnist", "mixed_circle"],
     *,
@@ -759,21 +888,35 @@ def build_dataset_with_norm(
     W_norm: float | None = None,
     mnist_split: str = "train",
     phased: bool = False,
+    strict_obstacle_bie: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Strict paper-protocol dataset builder.
 
-    Generates labels, then computes the DSM indicator via a full Helmholtz
-    Lippmann-Schwinger solve. Returns (inputs, labels, normalization).
+    When ``strict_obstacle_bie=True`` (default) sound-soft regions are
+    simulated with a Dirichlet BIE (paper Eq. 2.3); medium regions use the
+    exact volume integral solve. Set to ``False`` to fall back to the
+    legacy complex-refractive-index VIE surrogate.
     """
-    labels = build_labels(kind, n_samples=n_samples, cfg=cfg, mnist_split=mnist_split)
-    inputs, W = compute_strict_dsm_inputs(
-        labels,
-        cfg=cfg,
-        noise_level=noise_level,
-        seed=cfg.seed,
-        W_norm=W_norm,
-        phased=phased,
-    )
+    labels, metas = build_labels_with_meta(kind, n_samples=n_samples, cfg=cfg, mnist_split=mnist_split)
+    if strict_obstacle_bie and metas is not None:
+        inputs, W = compute_strict_dsm_inputs_with_meta(
+            labels,
+            metas,
+            cfg=cfg,
+            noise_level=noise_level,
+            seed=cfg.seed,
+            W_norm=W_norm,
+            phased=phased,
+        )
+    else:
+        inputs, W = compute_strict_dsm_inputs(
+            labels,
+            cfg=cfg,
+            noise_level=noise_level,
+            seed=cfg.seed,
+            W_norm=W_norm,
+            phased=phased,
+        )
     return inputs, labels, W
 
 

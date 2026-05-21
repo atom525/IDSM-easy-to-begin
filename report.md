@@ -490,13 +490,13 @@ Recommended execution order and measured runtime (`n_boundary=256`, Intel/AMD x8
 
 | Step | Command | Output | Runtime |
 |------|---------|--------|---------|
-| 1 | `jupyter notebook notebooks/01_forward_problem.ipynb` | `figures/01_*.png` (10 images) | ~1 min |
-| 2 | `jupyter notebook notebooks/02_classical_dsm.ipynb` | `figures/02_*.png` (7 images) | ~2 min |
-| 3 | `jupyter notebook notebooks/03_iterative_dsm.ipynb` | `figures/03_*.png` (10 images) | ~8 min |
-| 4 | `python tests/run_nb04_figures.py` | `figures/04_*.png` (15 images) | ~15 min |
+| 1 | `jupyter notebook notebooks/01_forward_problem.ipynb` | `figures/01_forward/01_*.png` (10 images) | ~1 min |
+| 2 | `jupyter notebook notebooks/02_classical_dsm.ipynb` | `figures/02_classical/02_*.png` (7 images) | ~2 min |
+| 3 | `jupyter notebook notebooks/03_iterative_dsm.ipynb` | `figures/03_iterative/03_*.png` (10 images) | ~8 min |
+| 4 | `python scripts/run_nb04_figures.py` | `figures/04_comparative/04_*.png` (15 images) | ~15 min |
 
 **Notes**:
-- Step 4 uses the command-line script `tests/run_nb04_figures.py` (999 lines), which contains 15 independent experiment segments and invokes `run_idsm` / `run_idsm_partial` 17 times
+- Step 4 uses the command-line script `scripts/run_nb04_figures.py` (999 lines), which contains 15 independent experiment segments and invokes `run_idsm` / `run_idsm_partial` 17 times
 - `n_boundary=256` corresponds to a FEM mesh with ~16,000 triangles and ~8,000 nodes
 - Measured runtime: single IDSM (22 iterations) ~30 seconds; single partial IDSM (22 iterations) ~60 seconds
 
