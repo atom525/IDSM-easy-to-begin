@@ -157,7 +157,15 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
         rows = 2
     else:
         rows = 1
-    fig, axes = plt.subplots(rows, frame_count, figsize=(2.15 * frame_count, 2.55 * rows), squeeze=False)
+    # Reserve right-hand margin for shared colorbars.
+    fig, axes = plt.subplots(rows, frame_count, figsize=(2.15 * frame_count + 0.6, 2.55 * rows), squeeze=False)
+
+    last_im_row0 = None  # for shared colorbar at row 0
+    last_im_row1 = None  # for shared colorbar at row 1 (double mode)
+    cmap0 = CONDUCTIVITY_CMAP
+    cmap1 = POTENTIAL_CMAP
+    label0 = 'sigma norm.'
+    label1 = 'V norm.'
 
     for col, seg_idx in enumerate(frame_idx):
         t_now = float(frame_times[col])
@@ -171,15 +179,18 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
 
             ax = axes[0, col]
             sigma_show = normalize_inhomogeneity(sigma, c_a, c_b)
-            plot_field(ax, triang, sigma_show, cmap=CONDUCTIVITY_CMAP, vmin=0.0, vmax=1.0, gamma=0.72)
+            last_im_row0 = plot_field(ax, triang, sigma_show, cmap=CONDUCTIVITY_CMAP, vmin=0.0, vmax=1.0, gamma=0.72)
             draw_inclusions(ax, traj_func, radius_func, t_now, (0, 1), edge=SIGMA_EDGE)
             ax.set_ylabel('sigma norm.' if col == 0 else '', fontweight='bold')
 
             ax = axes[1, col]
             potential_show = normalize_inhomogeneity(potential, v_a, v_b)
-            plot_field(ax, triang, potential_show, cmap=POTENTIAL_CMAP, vmin=0.0, vmax=1.0, gamma=0.45)
+            last_im_row1 = plot_field(ax, triang, potential_show, cmap=POTENTIAL_CMAP, vmin=0.0, vmax=1.0, gamma=0.45)
             draw_inclusions(ax, traj_func, radius_func, t_now, (2,), edge=POTENTIAL_EDGE)
             ax.set_ylabel('V norm.' if col == 0 else '', fontweight='bold')
+            cmap0 = CONDUCTIVITY_CMAP
+            cmap1 = POTENTIAL_CMAP
+            label0, label1 = 'sigma norm.', 'V norm.'
         else:
             ax = axes[0, col]
             field = field_for_model(data, model, seg_idx)
@@ -187,23 +198,26 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
                 v_a = float(data['cfg_vA'])
                 v_b = float(data['cfg_vB'])
                 field_show = normalize_inhomogeneity(field, v_a, v_b)
-                plot_field(ax, triang, field_show, cmap=POTENTIAL_CMAP, vmin=0.0, vmax=1.0, gamma=0.42)
+                last_im_row0 = plot_field(ax, triang, field_show, cmap=POTENTIAL_CMAP, vmin=0.0, vmax=1.0, gamma=0.42)
                 draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge=POTENTIAL_EDGE)
                 ax.set_ylabel('V norm.' if col == 0 else '', fontweight='bold')
+                cmap0 = POTENTIAL_CMAP; label0 = 'V norm.'
             elif model == 'nonlinear':
                 u_a = float(data['cfg_vA'])
                 u_b = float(data['cfg_vB'])
                 field_show = normalize_inhomogeneity(field, u_a, u_b)
-                plot_field(ax, triang, field_show, cmap=NONLINEAR_CMAP, vmin=0.0, vmax=1.0, gamma=0.50)
+                last_im_row0 = plot_field(ax, triang, field_show, cmap=NONLINEAR_CMAP, vmin=0.0, vmax=1.0, gamma=0.50)
                 draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge=SIGMA_EDGE)
                 ax.set_ylabel('U norm.' if col == 0 else '', fontweight='bold')
+                cmap0 = NONLINEAR_CMAP; label0 = 'U norm.'
             else:
                 c_a = float(data['cfg_cA'])
                 c_b = float(data['cfg_cB'])
                 field_show = normalize_inhomogeneity(field, c_a, c_b)
-                plot_field(ax, triang, field_show, cmap=CONDUCTIVITY_CMAP, vmin=0.0, vmax=1.0, gamma=0.72)
+                last_im_row0 = plot_field(ax, triang, field_show, cmap=CONDUCTIVITY_CMAP, vmin=0.0, vmax=1.0, gamma=0.72)
                 draw_inclusions(ax, traj_func, radius_func, t_now, idx_tuple, edge=SIGMA_EDGE)
                 ax.set_ylabel('sigma norm.' if col == 0 else '', fontweight='bold')
+                cmap0 = CONDUCTIVITY_CMAP; label0 = 'sigma norm.'
 
         for ax in axes[:, col]:
             add_domain_boundary(ax)
@@ -213,7 +227,16 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
     iou = data['iou_history']
     fig.suptitle(f'{title}  |  IoU mean={iou.mean():.3f}, max={iou.max():.3f}',
                  fontsize=12, fontweight='bold')
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.tight_layout(rect=[0, 0, 0.93, 0.94])
+    # Shared colorbar(s) on the right.
+    if rows == 2 and last_im_row0 is not None and last_im_row1 is not None:
+        cax0 = fig.add_axes([0.945, 0.53, 0.012, 0.34])
+        fig.colorbar(last_im_row0, cax=cax0, label=label0)
+        cax1 = fig.add_axes([0.945, 0.10, 0.012, 0.34])
+        fig.colorbar(last_im_row1, cax=cax1, label=label1)
+    elif last_im_row0 is not None:
+        cax0 = fig.add_axes([0.945, 0.18, 0.012, 0.62])
+        fig.colorbar(last_im_row0, cax=cax0, label=label0)
     out_dir = ROOT / 'figures' / 'parabolic'
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / filename

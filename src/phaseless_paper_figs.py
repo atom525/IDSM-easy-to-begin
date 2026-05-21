@@ -130,10 +130,13 @@ def render_recon_grid(
     n_cols = truth_labels.shape[0]
     n_rows = 1 + len(row_order)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.4 * n_cols, 2.6 * n_rows), squeeze=False)
+    truth_im = None
+    pred_im = None
     for c in range(n_cols):
         ax = axes[0, c]
-        ax.imshow(truth_labels[c], origin="lower", extent=(-1, 1, -1, 1), cmap="viridis", vmin=truth_vmin, vmax=truth_vmax)
+        truth_im = ax.imshow(truth_labels[c], origin="lower", extent=(-1, 1, -1, 1), cmap="viridis", vmin=truth_vmin, vmax=truth_vmax)
         ax.set_title(f"sample {c + 1}", fontsize=9)
+        ax.set_aspect("equal")
         ax.set_xticks([-1, 0, 1])
         ax.set_yticks([-1, 0, 1])
     for r, label in enumerate(row_order):
@@ -143,13 +146,20 @@ def render_recon_grid(
             img = preds[c]
             if pred_postprocess is not None:
                 img = pred_postprocess(img)
-            ax.imshow(img, origin="lower", extent=(-1, 1, -1, 1), cmap="viridis", vmin=pred_vmin, vmax=pred_vmax)
+            pred_im = ax.imshow(img, origin="lower", extent=(-1, 1, -1, 1), cmap="viridis", vmin=pred_vmin, vmax=pred_vmax)
+            ax.set_aspect("equal")
             ax.set_xticks([-1, 0, 1])
             ax.set_yticks([-1, 0, 1])
     for r, lbl in enumerate(["truth"] + row_order):
         axes[r, 0].set_ylabel(lbl, fontsize=10, rotation=0, ha="right", va="center")
     fig.suptitle(title, fontsize=11)
-    fig.tight_layout(rect=[0.02, 0, 1, 0.97])
+    fig.tight_layout(rect=[0.02, 0, 0.92, 0.97])
+    if truth_im is not None:
+        cax_truth = fig.add_axes([0.93, 0.55, 0.012, 0.32])
+        fig.colorbar(truth_im, cax=cax_truth, label="truth")
+    if pred_im is not None and len(row_order) > 0:
+        cax_pred = fig.add_axes([0.93, 0.10, 0.012, 0.40])
+        fig.colorbar(pred_im, cax=cax_pred, label="recon")
     return fig
 
 
