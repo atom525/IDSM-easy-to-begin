@@ -21,5 +21,7 @@ neural/
 data/
 
 # Trained DSM-DL checkpoints (regenerate via scripts/run_phaseless_full_repro.py)
-results/phaseless/checkpoints/
+results/phaseless/checkpoints*/
+results/phaseless/pre_eq24/
+figures/06_phaseless/pre_eq24/
 results/phaseless/mnist_fallback_smoke.txt

@@ -103,7 +103,7 @@ class TrainingConfig:
     lr_gamma: float = 0.5
     alpha_tv: float = 0.5
     alpha_ssim: float = 0.5
-    weight_decay: float = 1e-6
+    weight_decay: float = 0.0
     device: str = "cpu"
     seed: int = 0
 
@@ -632,7 +632,11 @@ class BalancedPolygonBatchSampler(torch.utils.data.Sampler):
         soft = self.soft_idx.copy()
         rng.shuffle(med)
         rng.shuffle(soft)
-        n_pairs = min(len(med), len(soft)) // self.half_batch
+        n_pairs = max(len(med), len(soft)) // self.half_batch
+        if len(med) < n_pairs * self.half_batch:
+            med = list(rng.choice(med, size=n_pairs * self.half_batch, replace=True))
+        if len(soft) < n_pairs * self.half_batch:
+            soft = list(rng.choice(soft, size=n_pairs * self.half_batch, replace=True))
         for i in range(n_pairs):
             batch = (
                 med[i * self.half_batch : (i + 1) * self.half_batch]
@@ -643,7 +647,7 @@ class BalancedPolygonBatchSampler(torch.utils.data.Sampler):
         self._epoch += 1
 
     def __len__(self):
-        return min(len(self.medium_idx), len(self.soft_idx)) // self.half_batch
+        return max(len(self.medium_idx), len(self.soft_idx)) // self.half_batch
 
 
 def _polygon_label_kind(label_image: np.ndarray) -> str:
@@ -708,12 +712,16 @@ def make_dataloaders(
     if x.shape[0] != y.shape[0]:
         raise ValueError("x and y batch size mismatch")
     n = x.shape[0]
-    n_val = max(1, int(np.floor(n * val_fraction)))
     idx = np.arange(n)
     rng = _rng(seed)
     rng.shuffle(idx)
-    val_idx = idx[:n_val]
-    train_idx = idx[n_val:]
+    if val_fraction > 0:
+        n_val = max(1, int(np.floor(n * val_fraction)))
+        val_idx = idx[:n_val]
+        train_idx = idx[n_val:]
+    else:
+        val_idx = idx[: max(1, min(batch_size, n))]
+        train_idx = idx
     train_ds = TensorDataset(x[train_idx], y[train_idx])
     val_ds = TensorDataset(x[val_idx], y[val_idx])
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)

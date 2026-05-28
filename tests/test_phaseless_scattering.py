@@ -41,7 +41,7 @@ def test_noise_model_rms_scales_with_delta():
 def test_run_example_dsm_smoke_and_normalized():
     cfg = PhaselessDSMConfig(forward_grid_size=28, scan_grid_size=48, n_receivers=64)
     out = run_example_dsm(
-        example_key="ex1_sound_hard_circle",
+        example_key="ex1_medium_square",
         cfg=cfg,
         noise_level=0.05,
         n_incident=1,

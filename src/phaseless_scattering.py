@@ -142,14 +142,15 @@ def _shape_mask(points: np.ndarray, shape: dict) -> np.ndarray:
 def example_specs() -> dict[str, ExampleSpec]:
     """Paper-style Section 5.1 examples for DSM with phaseless data."""
     return {
-        "ex1_sound_hard_circle": ExampleSpec(
-            name="Example 1: sound-hard circle",
+        "ex1_medium_square": ExampleSpec(
+            name="Example 1: medium square",
             shapes=(
                 {
-                    "kind": "circle",
+                    "kind": "square",
                     "center": (0.0, 0.0),
-                    "radius": 0.15,
-                    "material": "hard",
+                    "half_width": 0.075,
+                    "material": "medium",
+                    "n_value": 3.0,
                 },
             ),
         ),
@@ -206,12 +207,12 @@ def example_specs() -> dict[str, ExampleSpec]:
 
 
 def make_refractive_index(points: np.ndarray, spec: ExampleSpec, *, n_background: float = 1.0) -> np.ndarray:
-    """Build refractive index profile n(x) for a geometry spec.
+    """Build coefficient profile n(x) for a geometry spec.
 
-    For obstacle-type examples we use a strong-contrast surrogate profile:
-    - sound-soft  -> n = 0.2 inside
-    - sound-hard  -> n = 3.5 inside
-    This keeps the forward surrogate stable while preserving support geometry.
+    Paper Eq. (2.4) writes the medium equation as
+    ``Δu + k^2 n(x) u = 0`` with background value ``n=1``.  The values in
+    the synthetic labels therefore represent this coefficient directly, not
+    its square root.
     """
     pts = _validate_points(points, name="points")
     n_field = np.full(pts.shape[0], n_background, dtype=float)
@@ -547,11 +548,13 @@ class PhaselessBatchSimulator:
     function in Eq. (3.11) for phaseless data or Eq. (3.1) for phased data.
 
     Strict reproduction notes (arXiv:2403.02584v2):
-    - Refractive index is complex-valued: medium scatterers use the real label
-      values, sound-soft surrogates use ``n_soft`` with strong absorption to
-      approximate a Dirichlet boundary while still fitting a single VIE solve.
-    - The forward grid is solved exactly via ``torch.linalg.solve`` so the
-      result has no Born-truncation error.
+    - Medium labels are the paper's coefficient ``n(x)`` in Eq. (2.4), so the
+      VIE contrast is ``k^2 (n - 1)``.
+    - The metadata-aware path dispatches sound-soft scatterers to Dirichlet BIE.
+      The legacy ``compute_dsm_inputs`` path still supports a complex absorber
+      fallback via ``n_soft`` for fast experiments.
+    - The forward grid is solved via LU, so the medium-only result has no
+      Born-truncation error.
     """
 
     def __init__(
@@ -669,7 +672,7 @@ class PhaselessBatchSimulator:
     def _forward_total_at_recv(self, n_field_b: torch.Tensor, angle: float) -> torch.Tensor:
         if not torch.is_complex(n_field_b):
             n_field_b = n_field_b.to(torch.complex64)
-        contrast = (self.k ** 2) * (n_field_b * n_field_b - 1.0)
+        contrast = (self.k ** 2) * (n_field_b - 1.0)
         u_total_r_chunks: list[torch.Tensor] = []
         B_total = contrast.shape[0]
         for start in range(0, B_total, self.solve_batch):
@@ -775,7 +778,7 @@ class PhaselessBatchSimulator:
         n_fwd_complex = n_field_real.to(torch.complex64).reshape(
             medium_only_labels.shape[0], -1
         )
-        contrast = (self.k ** 2) * (n_fwd_complex * n_fwd_complex - 1.0)
+        contrast = (self.k ** 2) * (n_fwd_complex - 1.0)
         out_chunks: list[torch.Tensor] = []
         B = contrast.shape[0]
         u_inc_fwd, _u_inc_r = self._get_incident(angle)
@@ -925,7 +928,7 @@ class PhaselessBatchSimulator:
             B_sub = stop - start
             for s in range(0, B_sub, self.solve_batch):
                 e = min(s + self.solve_batch, B_sub)
-                c_sub = (self.k ** 2) * (n_fwd_complex[s:e] * n_fwd_complex[s:e] - 1.0)
+                c_sub = (self.k ** 2) * (n_fwd_complex[s:e] - 1.0)
                 LU, piv = self._lu_factor_batch(c_sub)
                 for ci, ang in enumerate(angles):
                     total_r = self._total_at_recv_with_lu(LU, piv, c_sub, float(ang))
@@ -957,7 +960,7 @@ def run_example_dsm_paper(
 ) -> dict:
     """Run a paper-style Section 5.1 example with the correct forward physics.
 
-    - Example 1 (sound-hard circle): BIE Neumann (single-layer adjoint formulation).
+    - Example 1 (medium square): exact volume integral equation.
     - Example 2 (sound-soft squares): BIE Dirichlet (single-layer formulation).
     - Examples 3-4 (medium scatterers): exact volume integral equation via the
       cached :class:`PhaselessBatchSimulator`.
@@ -1026,16 +1029,13 @@ def run_example_dsm_paper(
         # Build refractive label for medium scatterer geometry on scan grid.
         n_field_label = make_refractive_index(scan_pts, spec).reshape(scan_grid_size, scan_grid_size)
         labels = n_field_label[None, :, :].astype(np.float32)
-        for c, angle in enumerate(angles):
-            inputs, _ = sim.compute_dsm_inputs(
-                labels,
-                n_incident=1,
-                noise_level=noise_level,
-                seed=int(seed) + c,
-                input_scale=1.0,
-                W_norm=1.0,
-            )
-            indicator_accum += inputs[0, 0].reshape(-1)
+        labels_t = torch.from_numpy(labels).to(sim.device)
+        n_fwd_real = sim._resize_to_forward(labels_t)
+        n_fwd = sim._labels_to_complex_index(n_fwd_real).reshape(1, -1)
+        for angle in angles:
+            total_r = sim._forward_total_at_recv(n_fwd, float(angle))
+            ind = sim._phaseless_indicator(total_r, float(angle), noise_level, rng)
+            indicator_accum += ind[0].detach().cpu().numpy().reshape(-1)
 
     indicator_accum /= float(n_incident)
     indicator_norm = normalize_indicator(indicator_accum).reshape(scan_grid_size, scan_grid_size)

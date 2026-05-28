@@ -32,6 +32,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image, ImageDraw
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,51 +86,76 @@ def _cleanup(*objs: object) -> None:
 # ---------------- OOD label constructors (by-description) ----------------
 
 def _draw_chinese_like_set(size: int = 64) -> np.ndarray:
-    """Five deterministic character-like labels (paper Section 5.2.2.2)."""
-    yy, xx = np.mgrid[0:size, 0:size]
-    out: list[np.ndarray] = []
+    """Five deterministic Chinese-character labels from paper Fig. 8.
+
+    The paper's Fig. 8 uses the characters ``五, 六, 七, 八, 九`` as OOD
+    tests. The original bitmaps are not public, so we draw clean stroke masks
+    matching those characters rather than the earlier generic glyph proxies.
+    """
+    ref_path = ROOT / "reference" / "phaseless_fig8_chinese_truth_from_paper.npz"
+    if ref_path.exists():
+        labels = np.load(ref_path)["labels"].astype(np.float32)
+        if labels.shape == (5, size, size):
+            return labels
+
     c_value = 1.5
+    width = max(4, int(round(size * 0.085)))
 
-    m1 = np.ones((size, size), dtype=np.float32)
-    m1[np.abs(xx - size * 0.5) < size * 0.03] = c_value
-    m1[np.abs(yy - size * 0.5) < size * 0.03] = c_value
-    m1[(xx > size * 0.2) & (xx < size * 0.8) & (np.abs(yy - size * 0.2) < size * 0.02)] = c_value
-    out.append(m1)
+    def _line(draw: ImageDraw.ImageDraw, pts: list[tuple[float, float]]) -> None:
+        xy = [(int(round(x * (size - 1))), int(round(y * (size - 1)))) for x, y in pts]
+        draw.line(xy, fill=255, width=width, joint="curve")
+        r = width // 2
+        for x, y in xy:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=255)
 
-    m2 = np.ones((size, size), dtype=np.float32)
-    m2[np.abs(xx - size * 0.3) < size * 0.025] = c_value
-    m2[np.abs(xx - size * 0.7) < size * 0.025] = c_value
-    for frac in (0.25, 0.45, 0.65, 0.82):
-        m2[(np.abs(yy - size * frac) < size * 0.02) & (xx > size * 0.3) & (xx < size * 0.7)] = c_value
-    out.append(m2)
+    glyphs = [
+        # 五
+        [[(0.18, 0.20), (0.80, 0.18)],
+         [(0.34, 0.21), (0.27, 0.44), (0.25, 0.58)],
+         [(0.26, 0.44), (0.73, 0.44)],
+         [(0.62, 0.24), (0.58, 0.72)],
+         [(0.18, 0.78), (0.83, 0.78)]],
+        # 六
+        [[(0.50, 0.14), (0.50, 0.29)],
+         [(0.20, 0.37), (0.80, 0.36)],
+         [(0.43, 0.45), (0.25, 0.80)],
+         [(0.58, 0.45), (0.82, 0.80)]],
+        # 七
+        [[(0.22, 0.33), (0.82, 0.25)],
+         [(0.50, 0.18), (0.45, 0.72), (0.67, 0.78)]],
+        # 八
+        [[(0.42, 0.22), (0.27, 0.58), (0.18, 0.78)],
+         [(0.58, 0.22), (0.72, 0.58), (0.84, 0.78)]],
+        # 九
+        [[(0.25, 0.28), (0.70, 0.28)],
+         [(0.52, 0.18), (0.48, 0.52), (0.30, 0.78)],
+         [(0.48, 0.52), (0.72, 0.66), (0.68, 0.82)]],
+    ]
 
-    m3 = np.ones((size, size), dtype=np.float32)
-    for frac in (0.28, 0.50, 0.72):
-        m3[(np.abs(yy - size * frac) < size * 0.025) & (xx > size * 0.2) & (xx < size * 0.8)] = c_value
-    m3[(np.abs(xx - size * 0.5) < size * 0.025) & (yy > size * 0.2) & (yy < size * 0.8)] = c_value
-    out.append(m3)
-
-    m4 = np.ones((size, size), dtype=np.float32)
-    diag1 = np.abs((yy - size * 0.2) - (xx - size * 0.2)) < size * 0.03
-    diag2 = np.abs((yy - size * 0.8) + (xx - size * 0.2) - size * 0.6) < size * 0.03
-    m4[diag1 | diag2] = c_value
-    out.append(m4)
-
-    m5 = np.ones((size, size), dtype=np.float32)
-    frame = (
-        ((np.abs(xx - size * 0.2) < size * 0.02) & (yy > size * 0.2) & (yy < size * 0.8))
-        | ((np.abs(xx - size * 0.8) < size * 0.02) & (yy > size * 0.2) & (yy < size * 0.8))
-        | ((np.abs(yy - size * 0.2) < size * 0.02) & (xx > size * 0.2) & (xx < size * 0.8))
-        | ((np.abs(yy - size * 0.8) < size * 0.02) & (xx > size * 0.2) & (xx < size * 0.8))
-    )
-    m5[frame] = c_value
-    m5[((xx - size * 0.5) ** 2 + (yy - size * 0.5) ** 2) < (size * 0.10) ** 2] = c_value
-    out.append(m5)
+    out: list[np.ndarray] = []
+    for strokes in glyphs:
+        img = Image.new("L", (size, size), 0)
+        draw = ImageDraw.Draw(img)
+        for stroke in strokes:
+            _line(draw, stroke)
+        # Figures use ``imshow(..., origin="lower")``.  PIL draws in a
+        # top-left origin coordinate system, so flip vertically to display
+        # upright Chinese characters in the paper-style axes.
+        mask = np.flipud(np.asarray(img, dtype=np.float32) > 0)
+        arr = np.ones((size, size), dtype=np.float32)
+        arr[mask] = c_value
+        out.append(arr)
     return np.stack(out, axis=0)
 
 
 def _draw_austria_like_set(size: int = 64) -> tuple[np.ndarray, np.ndarray]:
     """Two Austria-style profiles (paper Section 5.2.2.3)."""
+    ref_path = ROOT / "reference" / "phaseless_fig9_austria_truth_from_paper.npz"
+    if ref_path.exists():
+        labels = np.load(ref_path)["labels"].astype(np.float32)
+        if labels.shape == (2, size, size):
+            return labels[0:1], labels[1:2]
+
     yy, xx = np.mgrid[0:size, 0:size]
     r = np.sqrt((xx - size * 0.5) ** 2 + (yy - size * 0.5) ** 2)
 
@@ -534,8 +560,8 @@ def _section51_dsm(summary: dict, *, seed: int, out_fig: Path) -> None:
 
     dsm_out: dict[str, dict] = {}
     dsm_jobs = [
-        ("ex1_sound_hard_circle", 0.05, 1),
-        ("ex1_sound_hard_circle", 0.10, 1),
+        ("ex1_medium_square", 0.05, 1),
+        ("ex1_medium_square", 0.10, 1),
         ("ex2_sound_soft_squares", 0.05, 1),
         ("ex2_sound_soft_squares", 0.10, 1),
         ("ex3_close_medium_squares", 0.05, 1),
@@ -566,7 +592,7 @@ def _section51_dsm(summary: dict, *, seed: int, out_fig: Path) -> None:
     summary["dsm"] = dsm_out
 
     trip = [
-        ("ex1_sound_hard_circle", "obstacle"),
+        ("ex1_medium_square", "medium"),
         ("ex2_sound_soft_squares", "obstacle"),
         ("ex3_close_medium_squares", "medium"),
     ]
@@ -681,7 +707,7 @@ def _emit_comparison(summary: dict, *, out_res: Path) -> None:
         "- DSM-DL inputs are computed via Eq. (3.11)/(3.12) from a Helmholtz Lippmann-Schwinger solve.",
         "- Training noise = 1%; test noise per Eq. (5.1) at each evaluated delta.",
         "- MNIST uses official torchvision train/test split when reachable; otherwise a by-description fallback is used and disclosed in the JSON metadata.",
-        "- Chinese-like and Austria-like profiles are constructed from the paper's textual description; the original test images are not public.",
+        "- Chinese-character profiles are extracted from the visible truth row of paper Fig. 8; Austria-like profiles are constructed from the paper's textual description.",
     ])
 
     (out_res / "full_summary.json").write_text(
