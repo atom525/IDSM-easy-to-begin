@@ -1,7 +1,7 @@
 """Generate the main Section 5 parabolic reproduction figures.
 
 This script reads the Python-generated caches in ``results/parabolic`` and
-writes one main figure per paper example to ``figures/parabolic``:
+writes one main figure per FreeFEM-default example to ``figures/05_parabolic``:
 
 - ``fig_5_1.png``: Example 5.1, 5% noise
 - ``fig_5_1_noise10.png``: Example 5.1, 10% noise
@@ -237,7 +237,7 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
     elif last_im_row0 is not None:
         cax0 = fig.add_axes([0.945, 0.18, 0.012, 0.62])
         fig.colorbar(last_im_row0, cax=cax0, label=label0)
-    out_dir = ROOT / 'figures' / 'parabolic'
+    out_dir = ROOT / 'figures' / '05_parabolic'
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / filename
     save_figure(fig, out_path)
@@ -247,21 +247,36 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
 
 def make_table():
     lines = [
-        '# Main Parabolic Reproduction Summary',
+        '# Main Parabolic FreeFEM-Default Reproduction Summary',
         '',
-        f"{'Example':<10s} {'cache':<18s} {'n_seg':>6s} {'inner':>7s} {'IoU_mean':>9s} {'IoU_max':>8s} {'runtime':>8s}",
+        (
+            f"{'Example':<10s} {'cache':<18s} {'n_seg':>6s} {'inner':>7s} "
+            f"{'bg':>5s} {'adj':>6s} {'inhom':>7s} {'dir':>5s} {'total':>7s} "
+            f"{'IoU_mean':>9s} {'IoU_max':>8s} {'runtime':>8s}"
+        ),
     ]
     for key, mode, _filename, _title, *_rest in MAIN_FIGURES:
         data = load_npz(key, mode)
         iou = data['iou_history']
         inner = data['n_inner_per_segment']
+        inner_mean = float(inner.mean())
+        # Paper Table 1 counts one background solve and one final Dirichlet
+        # verification solve per segment. The adjoint and inhomogeneous forward
+        # rows are one solve plus the extra local refinement loops.
+        background = 1.0
+        adjoint = inner_mean
+        inhomogeneous = inner_mean
+        dirichlet = 1.0
+        total = background + adjoint + inhomogeneous + dirichlet
         lines.append(
             f"{key:<10s} {f'ex_{key}_{mode}.npz':<18s} {iou.shape[0]:>6d} "
-            f"{float(inner.mean()):>7.2f} {float(iou.mean()):>9.3f} "
-            f"{float(iou.max()):>8.3f} {float(data['runtime_seconds']):>7.1f}s"
+            f"{inner_mean:>7.2f} {background:>5.2f} {adjoint:>6.2f} "
+            f"{inhomogeneous:>7.2f} {dirichlet:>5.2f} {total:>7.2f} "
+            f"{float(iou.mean()):>9.3f} {float(iou.max()):>8.3f} "
+            f"{float(data['runtime_seconds']):>7.1f}s"
         )
     out = '\n'.join(lines)
-    out_path = ROOT / 'figures' / 'parabolic' / 'table1.txt'
+    out_path = ROOT / 'figures' / '05_parabolic' / 'table1.txt'
     out_path.write_text(out)
     print(out)
     print(f'saved {out_path}')

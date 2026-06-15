@@ -74,7 +74,7 @@ The six notebooks are designed to be followed in order:
 | `02_classical_dsm.ipynb` | Laplace-Beltrami, DSM indicator, limitations | ~2 min |
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
-| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), paper-scale Section 5 examples, saved `05_*.png` tutorial figures | ~10–20 min |
+| `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), FreeFEM-default Section 5 port, saved `05_*.png` tutorial figures | ~10–20 min |
 | `06_phaseless_dsmdl.ipynb` | Phaseless DSM (Section 5.1, BIE Dirichlet/Neumann + VIE Lippmann-Schwinger), DSM-DL with U-Net (Section 5.2 polygon/MNIST/mixed-circle), inline Fig.6-10 renderer loading saved checkpoints | ~1 min from cache; full retrain `scripts/run_phaseless_full_repro.py` ~1 h |
 
 Alternatively, you can use the package API directly:
@@ -146,11 +146,11 @@ IDSM/
     parabolic/           # Paper Section 5 multi-frame reproduction figures
     06_phaseless/        # Phaseless DSM + DSM-DL paper figures (Fig.2-10)
   results/
-    parabolic/           # Reproducible NPZ caches consumed by figures/parabolic
+    parabolic/           # Reproducible NPZ caches consumed by figures/05_parabolic
     phaseless/           # full_summary.json, full_comparison.md, checkpoints/
   scripts/
     run_all_examples.py              # Regenerate Paper Section 5 NPZ caches with ThFine/Th/ThCoarse
-    plot_parabolic_paper_figures.py  # Regenerate figures/parabolic from NPZ caches
+    plot_parabolic_paper_figures.py  # Regenerate figures/05_parabolic from NPZ caches
     run_nb04_figures.py              # Regenerate NB04 comparative-study figures (figures/04_comparative/04_*.png)
     run_phaseless_full_repro.py      # Phase 6: paper-scale Helmholtz reproduction (Fig.2-10 + checkpoints)
   requirements.txt
@@ -196,7 +196,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 - `solve_forward_segment(...)` -- Crank–Nicolson forward solver per segment (linear σ + V)
 - `solve_forward_segment_nonlinear(...)` -- Newton + Crank–Nicolson solver for §5.3 nonlinear $|y|y\cdot U$ source
 - `iterate_segment_nonlinear(...)` -- U-recovery inner loop (single-field P0 reconstruction projected to $[u_A, 2u_B]$)
-- `edp_cfg_example_5_{1..5}(noise=...)` / `paper_cfg_example_5_{1..5}(noise=...)` -- Paper §5 Examples 5.1–5.5 configurations. Both keep the FreeFEM numerical defaults; `paper_cfg` supplies paper-style noise choices while `edp_cfg` preserves each reference script default.
+- `edp_cfg_example_5_{1..5}(noise=...)` / `paper_cfg_example_5_{1..5}(noise=...)` -- Section 5 Examples 5.1–5.5 configurations. Both currently keep the FreeFEM/reference-program numerical defaults; `paper_cfg` supplies paper-style noise choices while `edp_cfg` preserves each reference script default. These are **not** a strict paper-text parameter profile when the paper and `.edp` defaults differ (e.g. damping, time step, and some low-rank choices).
 - `solve_adjoint_segment(...)` -- Backward adjoint PDE (Eq. 4.6) with terminal condition
 - `synthesize_full_forward(...)` -- Reference fine-mesh forward pass that produces noisy boundary measurements
 - `c_func_example_5_{1..5}` / `v_func_example_5_{1..5}` / `u_func_example_5_3` -- Ground-truth coefficient fields used both for synthesizing data and for IoU evaluation
@@ -205,7 +205,7 @@ FEM public API, backed by scikit-fem (default) or hand-written legacy implementa
 
 ### Parabolic Reproduction Artifacts
 
-Notebook 05 produces tutorial figures directly under `figures/05_parabolic/05_*.png`. The paper-style multi-frame plots are generated from strict three-mesh Python caches:
+Notebook 05 produces tutorial figures directly under `figures/05_parabolic/05_*.png`. The FreeFEM-default multi-frame plots are generated from three-mesh Python caches:
 
 ```bash
 # Main paper-noise caches, including Example 5.1 at 5% and 10% noise.
@@ -218,7 +218,7 @@ python scripts/run_all_examples.py --example 5.4 --mode edp --mesh-mode edp --qu
 python scripts/plot_parabolic_paper_figures.py
 ```
 
-The run commands write numerical caches to `results/parabolic/*.npz`; the plot command reads those caches and refreshes `figures/parabolic/*.png` plus `figures/parabolic/table1.txt`. The NPZ files are not source code, but they are kept so the paper-style figures can be inspected without rerunning the full parabolic experiment every time.
+The run commands write numerical caches to `results/parabolic/*.npz`; the plot command reads those caches and refreshes `figures/05_parabolic/*.png` plus `figures/05_parabolic/table1.txt`. The NPZ files are not source code, but they are kept so the FreeFEM-default figures can be inspected without rerunning the full parabolic experiment every time.
 
 ### `src/phaseless_scattering.py` (Paper 4: arXiv:2403.02584)
 - `PhaselessBatchSimulator` -- Hybrid forward solver: medium scatterers go through a batched Lippmann-Schwinger LU solve using the paper Eq. (2.4) coefficient contrast $k^2(n-1)$ (`torch.linalg.lu_factor` cached per sample, reused across incidences), while sound-soft scatterers ($u=0$ on $\partial D$, paper Eq. 2.3) are dispatched to the Dirichlet **boundary-integral equation** in `phaseless_bie.py`. Mixed-circle scenes use a Born-superposition approximation (medium VIE field + per-soft-scatterer BIE field). Both `compute_dsm_inputs(labels, ...)` (legacy complex-$n$ surrogate) and `compute_dsm_inputs_with_meta(labels, metas, ...)` (strict BIE+VIE Born) yield either Eq. (3.11) phaseless or Eq. (3.1) phased DSM indices.
@@ -301,7 +301,7 @@ Notebook 06 §6 then renders Fig.6–Fig.10 inline from those checkpoints in wel
 | `02_classical_dsm.ipynb` | 2 | Laplace-Beltrami eigenproblem, DSM indicator, gamma parameter, limitations |
 | `03_iterative_dsm.ipynb` | 3 | Regularized DtN map, Algorithm 3.2, DFP/BFG, convergence analysis |
 | `04_comparative_study.ipynb` | 4 | DSM vs IDSM, partial data, damping factor, ablation, noise sweep |
-| `05_parabolic_idsm.ipynb` | 5 | Crank-Nicolson forward, backward adjoint (Eq. 4.6), Algorithm 4.1, live runs for Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) |
+| `05_parabolic_idsm.ipynb` | 5 | Crank-Nicolson forward, backward adjoint (Eq. 4.6), Algorithm 4.1, FreeFEM-default live runs for Examples 5.1–5.5 (merging / mixed / nonlinear / fading / diminishing) |
 | `06_phaseless_dsmdl.ipynb` | 6 | Helmholtz forward, phaseless DSM (Eq. 3.11–3.12), BIE Dirichlet/Neumann for Section 5.1, U-Net DSM-DL (Eq. 4.1, Fig.1), Fig.2–10 reproduction with checkpoint cache |
 
 ## Configuration

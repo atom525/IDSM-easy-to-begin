@@ -104,19 +104,17 @@ def _duality(zeta, eta, areas):
 
 
 def compute_heterogeneous_D(mesh, gamma_d_node_mask, alpha_d, alpha_n, gamma=4.0, epsilon=0.02):
-    """Compute heterogeneous R_0 diagonal, consistent with full-data initialize_r0_diagonal structure.
+    """Compute the heterogeneous initial resolver diagonal.
 
-    Paper 3 Eq. (4.5) defines heterogeneous Sobolev norm ||Phi_z||_{H^1_{alpha_D}(Gamma)}.
-    Its discrete implementation reuses the full-data FreeFEM diagFunc formula (int_Gamma 1/r^2 ds'),
-    but with alpha/(1+alpha) weighting partitioned on Gamma_D/Gamma_N.
+    This is a FreeFEM-style weighted surrogate for Paper 3's heterogeneous
+    norm in Eq. (4.5): it keeps the robust full-data ``diagFunc`` denominator
+    ``int_Gamma |x-z|^{-2} ds`` and applies the HR-DtN reliability weight
+    ``w_e = 1 / (1 + alpha_e)`` on Gamma_D/Gamma_N edges.
 
-    Formula: D(z) = 1 / (sum_e w_e * L_e/2 * (1/r0^2 + 1/r1^2))^exponent
-    where w_e = 1/(1+alpha_e), alpha_e = alpha_d (Gamma_D edge) or alpha_n (Gamma_N edge).
-    exponent = 0.5 (matches FreeFEM Example1.edp L260-261).
-
-    Weight effect: on Gamma_D, w=1/(1+alpha_d)~0.95 (high weight, trusted data),
-    on Gamma_N, w=1/(1+alpha_n)~0.33 (low weight, unreliable completed data).
-    This makes D values smaller for sampling points far from Gamma_D, suppressing reconstruction in unreliable regions.
+    The paper parameter ``gamma`` is still meaningful here: it controls the
+    denominator power by ``exponent = gamma / 8``.  This calibration preserves
+    the full-data exponent ``0.5`` when Paper 3 Table 1 uses ``gamma=4``, but
+    avoids the previous bug where changing ``gamma_D`` had no effect at all.
     """
     centroids = mesh.centroids
     bdry_edges = mesh.boundary_edges
@@ -144,8 +142,7 @@ def compute_heterogeneous_D(mesh, gamma_d_node_mask, alpha_d, alpha_n, gamma=4.0
     integrand = weight[None, :] * lengths[None, :] * 0.5 * (1.0 / r0_sq + 1.0 / r1_sq)
     integral = np.sum(integrand, axis=1)
 
-    # exponent=0.5 matches FreeFEM Example1.edp L260-261
-    exponent = 0.5
+    exponent = float(gamma) / 8.0
     D = 1.0 / np.power(integral + 1e-30, exponent)
 
     # Near-boundary cutoff (epsilon_Omega cutoff)
@@ -256,9 +253,15 @@ class StabilizedLowRankResolver:
         return self._apply_with_store(vec, self.s_store, self.y_store, self.ry_store)
 
     def stabilize(self, lambda_prev):
-        """Eq. (4.10): R_tilde_{k+1} = S . (1+lambda)^{-1} R_k (1+lambda)^{-1}
+        """Apply stabilizer S and damping (1+lambda)^-1 to stored corrections.
 
-        Apply damping (1+lambda)^{-1} and smoothing operator S to all stored low-rank vectors.
+        The DFP/BFG action is homogeneous in the triple ``(s, y, Ry)``: scaling
+        all three by the same scalar cancels in the secant quotients and does
+        *not* damp the low-rank correction.  To make the scalar damping real,
+        we damp ``s`` and ``Ry`` but leave ``y`` undamped after smoothing.  This
+        matches the parabolic FreeFEM-style forgetting rule and keeps the
+        curvature pair ``<s, y>`` positive while reducing the correction
+        magnitude by the desired factor.
         """
         damp = 1.0 / (1.0 + max(lambda_prev, 0.0))
         m = self.fine_mesh.n_triangles
@@ -266,7 +269,7 @@ class StabilizedLowRankResolver:
             s = self.s_store[j]
             ry = self.ry_store[j]
             y = self.y_store[j]
-            # Apply S operator blockwise to s, ry, y (coarse mesh projection + recovery)
+            # Apply S operator blockwise to s, ry, y (coarse mesh projection + recovery).
             s_c = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, s[:m])
             s_v = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, s[m:])
             ry_c = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, ry[:m])
@@ -275,7 +278,7 @@ class StabilizedLowRankResolver:
             y_v = apply_stabilizer_S(self.fine_mesh, self.coarse_mesh, y[m:])
             self.s_store[j] = damp * np.concatenate([s_c, s_v])
             self.ry_store[j] = damp * np.concatenate([ry_c, ry_v])
-            self.y_store[j] = damp * np.concatenate([y_c, y_v])
+            self.y_store[j] = np.concatenate([y_c, y_v])
 
     def update_correction(self, s_vec, y_vec, ry_vec):
         idx = len(self.s_store) % self.max_store

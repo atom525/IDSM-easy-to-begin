@@ -5,8 +5,10 @@ import pytest
 
 from src.forward_solver import generate_cauchy_data, make_conductivity_example1
 from src.idsm_partial import (
+    StabilizedLowRankResolver,
     apply_hr_dtn,
     complete_data,
+    compute_heterogeneous_D,
     define_accessible_boundary,
     run_idsm_partial,
 )
@@ -90,6 +92,65 @@ def test_define_accessible_boundary_partition(mesh):
     assert n_d > 0
     assert n_n > 0
     assert n_d + n_n == len(mesh.boundary_nodes)
+
+
+def test_heterogeneous_D_uses_gamma_parameter(mesh, gamma_d):
+    """Paper-3 gamma_D must affect the heterogeneous initial resolver."""
+    D4 = compute_heterogeneous_D(
+        mesh,
+        gamma_d["node_mask"],
+        alpha_d=0.05,
+        alpha_n=2.0,
+        gamma=4.0,
+        epsilon=0.02,
+    )
+    D8 = compute_heterogeneous_D(
+        mesh,
+        gamma_d["node_mask"],
+        alpha_d=0.05,
+        alpha_n=2.0,
+        gamma=8.0,
+        epsilon=0.02,
+    )
+    active = (D4 > 0) & (D8 > 0)
+    assert np.any(active)
+    rel = np.linalg.norm(D4[active] - D8[active]) / max(np.linalg.norm(D4[active]), 1e-30)
+    assert rel > 1e-3
+
+
+def test_stabilize_lambda_damps_lowrank_action(mesh):
+    """Scaling s/ry but not y makes (1+lambda)^-1 an actual correction weight."""
+    n = mesh.n_triangles
+    resolver = StabilizedLowRankResolver(
+        base_diag=np.zeros(2 * n),
+        fine_mesh=mesh,
+        coarse_mesh=mesh,
+        method="BFG",
+        max_store=4,
+    )
+    rng = np.random.default_rng(123)
+    y = rng.standard_normal(2 * n)
+    # Choose s with guaranteed positive curvature against y.
+    s = y + 0.25 * rng.standard_normal(2 * n)
+    if float(np.dot(s, y)) <= 0:
+        s *= -1.0
+    ry = resolver.apply(y)
+    # Make ry nonzero while keeping a stable BFG triple.
+    ry = y.copy()
+    resolver.update_correction(s, y, ry)
+
+    probe = rng.standard_normal(2 * n)
+    before = resolver.apply(probe).copy()
+    y_before = resolver.y_store[0].copy()
+    lambda_prev = 3.0
+    damp = 1.0 / (1.0 + lambda_prev)
+    resolver.stabilize(lambda_prev)
+    after = resolver.apply(probe)
+
+    assert np.allclose(resolver.y_store[0], y_before)
+    ratio = np.linalg.norm(after) / max(np.linalg.norm(before), 1e-30)
+    assert ratio < 0.6
+    assert ratio > 0.05 * damp  # sanity: not collapsed to numerical zero
 
 
 # ============================================================
