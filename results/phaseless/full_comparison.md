@@ -9,8 +9,8 @@
 
 | case | paper | ours | diff |
 |---|---:|---:|---:|
-| Ni=1,delta=0.02 | 0.9949 | 0.9932 | -0.0017 |
-| Ni=1,delta=0.10 | 0.9772 | 0.9821 | +0.0049 |
+| Ni=1,delta=0.02 | 0.9949 | 0.9933 | -0.0016 |
+| Ni=1,delta=0.10 | 0.9772 | 0.9823 | +0.0051 |
 | Ni=4,delta=0.02 | 0.9977 | 0.9966 | -0.0011 |
 | Ni=4,delta=0.10 | 0.9916 | 0.9910 | -0.0006 |
 
@@ -46,7 +46,7 @@
 
 ## Notes
 
-- No public author repo was found; protocol/parameters follow arXiv:2403.02584v2.
+- No public reference repo was found; protocol/parameters follow arXiv:2403.02584v2.
 - DSM-DL inputs are computed via Eq. (3.11)/(3.12) from a Helmholtz Lippmann-Schwinger solve.
 - Training noise = 1%; test noise per Eq. (5.1) at each evaluated delta.
 - MNIST uses official torchvision train/test split when reachable; otherwise a by-description fallback is used and disclosed in the JSON metadata.

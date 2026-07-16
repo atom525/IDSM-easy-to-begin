@@ -5,3 +5,7 @@ meshpy==2025.1.1
 scikit-fem>=9.0
 jupyter==1.1.1
 pytest==9.0.2
+torch
+torchvision
+Pillow
+pytorch-msssim

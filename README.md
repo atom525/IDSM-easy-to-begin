@@ -54,7 +54,7 @@ conda activate IDSM
 pip install -r requirements.txt
 
 # Verify
-python -c "from IDSM.src import run_idsm; print('OK')"
+python -c "import sys; sys.path.insert(0,'.'); from src.idsm import run_idsm; print('OK')"
 ```
 
 ## Quick Start
@@ -75,14 +75,14 @@ The six notebooks are designed to be followed in order:
 | `03_iterative_dsm.ipynb` | Regularized DtN map, IDSM Algorithm 3.2, DFP/BFG | ~8 min |
 | `04_comparative_study.ipynb` | DSM vs IDSM, partial data, ablation, noise sweep | ~15 min |
 | `05_parabolic_idsm.ipynb` | Parabolic IDSM (Algorithm 4.1), FreeFEM-default Section 5 port, saved `05_*.png` tutorial figures | ~10–20 min |
-| `06_phaseless_dsmdl.ipynb` | Phaseless DSM (Section 5.1, BIE Dirichlet/Neumann + VIE Lippmann-Schwinger), DSM-DL with U-Net (Section 5.2 polygon/MNIST/mixed-circle), inline Fig.6-10 renderer loading saved checkpoints | ~1 min from cache; full retrain `scripts/run_phaseless_full_repro.py` ~1 h |
+| `06_phaseless_dsmdl.ipynb` | Phaseless DSM (Section 5.1, BIE Dirichlet/Neumann + VIE Lippmann-Schwinger), DSM-DL with U-Net (Section 5.2 polygon/MNIST/mixed-circle), plus reference-code Python port | ~1 min from cache; full retrain `scripts/run_phaseless_full_repro.py` ~1 h |
 
 Alternatively, you can use the package API directly:
 
 ```python
-from IDSM.src.mesh import generate_elliptic_mesh
-from IDSM.src.forward_solver import make_conductivity_example1, generate_cauchy_data
-from IDSM.src.idsm import run_idsm
+from src.mesh import generate_elliptic_mesh
+from src.forward_solver import make_conductivity_example1, generate_cauchy_data
+from src.idsm import run_idsm
 
 # Generate mesh and ground truth
 mesh = generate_elliptic_mesh(n_boundary=256)
@@ -153,6 +153,8 @@ IDSM/
     plot_parabolic_paper_figures.py  # Regenerate figures/05_parabolic from NPZ caches
     run_nb04_figures.py              # Regenerate NB04 comparative-study figures (figures/04_comparative/04_*.png)
     run_phaseless_full_repro.py      # Phase 6: paper-scale Helmholtz reproduction (Fig.2-10 + checkpoints)
+    run_phaseless_forward_generate.py # Phase 6: pure Python port of ISP_forward/DataMnist.m
+    run_phaseless_port_repro.py      # Phase 6: pure Python port of DSMDL_phaseless/main.py
   requirements.txt
   README.md
 ```
@@ -252,6 +254,16 @@ The strict run is driven by a single script and produces every paper output (Fig
 ```bash
 # Strict paper-protocol reproduction. ~60 minutes on an A100.
 conda run -n IDSM python scripts/run_phaseless_full_repro.py
+```
+
+The reference-code path is also available in pure Python:
+
+```bash
+# Optional: regenerate forward data without MATLAB.
+conda run -n IDSM python scripts/run_phaseless_forward_generate.py --n-samples 200
+
+# Reproduce DSMDL_phaseless/main.py behavior (U_Net3Ab + legacy loss weights).
+conda run -n IDSM python scripts/run_phaseless_port_repro.py
 ```
 
 It writes:
@@ -356,7 +368,7 @@ A: Yes. Set `IDSM_FEM_LEGACY=1` as an environment variable. The adapter layer in
 **FreeFEM reference code**:
 - Elliptic: [github.com/RaulWangfr/IDSM-elliptic](https://github.com/RaulWangfr/IDSM-elliptic)
 - Parabolic: [github.com/RaulWangfr/IDSM-parabolic](https://github.com/RaulWangfr/IDSM-parabolic)
-- Phaseless DSM-DL: no public author repository identified; Phase 6 is a paper-faithful re-implementation.
+- Phaseless DSM-DL: no public reference repository identified; Phase 6 is a paper-faithful re-implementation.
 
 ## License
 

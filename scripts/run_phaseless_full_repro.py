@@ -703,7 +703,7 @@ def _emit_comparison(summary: dict, *, out_res: Path) -> None:
         "",
         "## Notes",
         "",
-        "- No public author repo was found; protocol/parameters follow arXiv:2403.02584v2.",
+        "- No public reference repo was found; protocol/parameters follow arXiv:2403.02584v2.",
         "- DSM-DL inputs are computed via Eq. (3.11)/(3.12) from a Helmholtz Lippmann-Schwinger solve.",
         "- Training noise = 1%; test noise per Eq. (5.1) at each evaluated delta.",
         "- MNIST uses official torchvision train/test split when reachable; otherwise a by-description fallback is used and disclosed in the JSON metadata.",

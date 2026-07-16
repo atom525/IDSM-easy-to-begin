@@ -91,6 +91,14 @@ from .phaseless_dsmdl import (
     make_dataset_tensors,
     train_unet,
 )
+from .phaseless_reference import (
+    ForwardConfig,
+    TrainingConfigLegacy,
+    UNet3Ab,
+    compute_inputs_from_mat,
+    generate_forward_dataset,
+    train_unet3ab,
+)
 
 __all__ = [
     # mesh
@@ -179,4 +187,11 @@ __all__ = [
     "make_dataset_tensors",
     "dsmdl_loss",
     "train_unet",
+    # reference phaseless port
+    "ForwardConfig",
+    "TrainingConfigLegacy",
+    "UNet3Ab",
+    "compute_inputs_from_mat",
+    "generate_forward_dataset",
+    "train_unet3ab",
 ]
