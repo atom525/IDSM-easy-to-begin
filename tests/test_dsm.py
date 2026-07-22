@@ -7,6 +7,7 @@ from src.dsm import (
     compute_dsm_indicator,
     discretize_laplace_beltrami,
     compute_scattering_data,
+    interpolate_p1_to_points,
 )
 from src.forward_solver import generate_cauchy_data, make_conductivity_example1
 from src.mesh import generate_elliptic_mesh
@@ -72,3 +73,11 @@ def test_scattering_data_structure():
     scatter = compute_scattering_data(data)
     assert len(scatter) == 1
     assert scatter[0].shape[0] == mesh.n_points
+
+
+def test_public_p1_interpolation_reproduces_linear_field(mesh):
+    values = 2.0 * mesh.points[:, 0] - 0.5 * mesh.points[:, 1] + 1.0
+    query = mesh.centroids[:20]
+    interpolated = interpolate_p1_to_points(mesh, values, query)
+    expected = 2.0 * query[:, 0] - 0.5 * query[:, 1] + 1.0
+    assert np.allclose(interpolated, expected, atol=1e-12)

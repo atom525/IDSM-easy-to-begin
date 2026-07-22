@@ -20,6 +20,11 @@ def test_unet_forward_shape():
     x = torch.randn(2, 4, 64, 64)
     y = model(x)
     assert y.shape == (2, 1, 64, 64)
+    y_trace, trace = model.forward_with_trace(x)
+    assert y_trace.shape == y.shape
+    assert trace["input"] == (2, 4, 64, 64)
+    assert trace["bottleneck"] == (2, 256, 4, 4)
+    assert trace["output"] == (2, 1, 64, 64)
 
 
 def test_dsmdl_loss_is_finite():

@@ -98,12 +98,6 @@ def run_single(example_id: str, mode: str, noise: float, out_dir: Path,
         cfg = spec['edp_cfg'](noise=noise)
     if total_time_override is not None:
         cfg.total_time = total_time_override
-    elif example_id == '5.3':
-        # The FreeFEM script keeps a short default for quick debugging, but the
-        # paper discussion and figures track the nonlinear inclusion over a
-        # long horizon.  Use the paper-scale horizon for the canonical runner.
-        cfg.total_time = 10.0
-
     print(f"\n[{example_id} {spec['name']} | {mode} | noise={noise}] "
           f"total_time={cfg.total_time:.2f} tol={cfg.tolerance} "
           f"max_inner={cfg.max_inner} forget={cfg.forget_scale} lowrank={cfg.lowrank} "

@@ -3,6 +3,7 @@
 import numpy as np
 
 from src.phaseless_scattering import (
+    PhaselessBatchSimulator,
     PhaselessDSMConfig,
     add_phaseless_noise,
     corrected_phaseless_data,
@@ -51,4 +52,19 @@ def test_run_example_dsm_smoke_and_normalized():
     assert out["truth_mask"].shape == (cfg.scan_grid_size, cfg.scan_grid_size)
     assert np.nanmax(out["indicator"]) <= 1.000001
     assert np.nanmin(out["indicator"]) >= -1e-12
+
+
+def test_public_strict_vie_receiver_field_shape():
+    sim = PhaselessBatchSimulator(
+        scan_grid_size=16,
+        forward_grid_size=16,
+        n_receivers=24,
+        solve_batch=1,
+        device="cpu",
+    )
+    labels = np.ones((16, 16), dtype=np.float32)
+    labels[6:10, 6:10] = 3.0
+    total = sim.forward_total_at_receivers(labels, angle=np.pi / 4.0)
+    assert total.shape == (1, 24)
+    assert np.all(np.isfinite(total))
 

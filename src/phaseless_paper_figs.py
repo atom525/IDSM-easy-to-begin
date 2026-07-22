@@ -362,18 +362,18 @@ def render_and_save_all(
     saved: dict[str, Path] = {}
 
     fig = assemble_polygon_fig6(polygon_cases, seed=seed, device=device, mnist_download=mnist_download)
-    saved["fig6"] = save_figure(fig, out_fig / "fig6_polygon_recon.png", dpi=160)
+    saved["fig6"] = save_figure(fig, out_fig / "06_paper_fig6_polygon.png", dpi=160)
     plt.close(fig)
 
     fig = assemble_mnist_fig7(mnist_cases, seed=seed, device=device, mnist_download=mnist_download)
-    saved["fig7"] = save_figure(fig, out_fig / "fig7_mnist_recon.png", dpi=160)
+    saved["fig7"] = save_figure(fig, out_fig / "06_paper_fig7_mnist.png", dpi=160)
     plt.close(fig)
 
     fig = assemble_ood_grid(
         "Fig.8 Chinese-character OOD reconstructions",
         draw_chinese_like_set(64), mnist_cases, seed=seed + 8500, device=device,
     )
-    saved["fig8"] = save_figure(fig, out_fig / "fig8_chinese_recon.png", dpi=160)
+    saved["fig8"] = save_figure(fig, out_fig / "06_paper_fig8_chinese.png", dpi=160)
     plt.close(fig)
 
     austria_1, austria_2 = draw_austria_like_set(64)
@@ -381,11 +381,11 @@ def render_and_save_all(
         "Fig.9 Austria ring OOD reconstructions",
         np.concatenate([austria_1, austria_2], axis=0), mnist_cases, seed=seed + 8800, device=device,
     )
-    saved["fig9"] = save_figure(fig, out_fig / "fig9_austria_recon.png", dpi=160)
+    saved["fig9"] = save_figure(fig, out_fig / "06_paper_fig9_austria.png", dpi=160)
     plt.close(fig)
 
     fig = assemble_mixed_fig10(mixed_case, seed=seed, device=device, mnist_download=mnist_download)
-    saved["fig10"] = save_figure(fig, out_fig / "fig10_mixed_recon.png", dpi=160)
+    saved["fig10"] = save_figure(fig, out_fig / "06_paper_fig10_mixed.png", dpi=160)
     plt.close(fig)
 
     return saved

@@ -51,6 +51,10 @@ def test_unet3ab_forward_shape():
     x = torch.randn(2, 4, 64, 64)
     y = model(x)
     assert y.shape == (2, 1, 64, 64)
+    y_trace, trace = model.forward_with_trace(x)
+    assert y_trace.shape == y.shape
+    assert trace["encoder_4"] == (2, 128, 8, 8)
+    assert trace["output"] == (2, 1, 64, 64)
 
 
 def test_train_unet3ab_smoke():
@@ -83,3 +87,14 @@ def test_generate_forward_dataset_small_grid():
     assert out["E_i"].shape == (20, 2, 1)
     assert out["E_s"].shape == (20, 2, 1)
     assert out["R_mat"].shape == (20, 16 * 16)
+    inputs = compute_inputs_from_fields(
+        e_i=out["E_i"],
+        e_s=out["E_s"],
+        r_mat=out["R_mat"],
+        n_incident=2,
+        noise_level=0.01,
+        mm_scale=500.0,
+        seed=0,
+    )
+    assert inputs["inputs_noisy"].shape == (1, 2, 16, 16)
+    assert inputs["image_size"] == 16

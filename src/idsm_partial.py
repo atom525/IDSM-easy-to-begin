@@ -104,17 +104,19 @@ def _duality(zeta, eta, areas):
 
 
 def compute_heterogeneous_D(mesh, gamma_d_node_mask, alpha_d, alpha_n, gamma=4.0, epsilon=0.02):
-    """Compute the heterogeneous initial resolver diagonal.
+    """Discretize Paper 3 Eq. (4.5) for the initial resolver diagonal.
 
-    This is a FreeFEM-style weighted surrogate for Paper 3's heterogeneous
-    norm in Eq. (4.5): it keeps the robust full-data ``diagFunc`` denominator
-    ``int_Gamma |x-z|^{-2} ds`` and applies the HR-DtN reliability weight
-    ``w_e = 1 / (1 + alpha_e)`` on Gamma_D/Gamma_N edges.
+    In two dimensions ``Phi_z(x) = -(2*pi)^-1 log|x-z|`` and
+    ``|grad Phi_z(x)| = (2*pi*|x-z|)^-1``.  With piecewise-constant
+    ``alpha_D`` on boundary edges, Eq. (4.5) is approximated by endpoint
+    trapezoidal quadrature:
 
-    The paper parameter ``gamma`` is still meaningful here: it controls the
-    denominator power by ``exponent = gamma / 8``.  This calibration preserves
-    the full-data exponent ``0.5`` when Paper 3 Table 1 uses ``gamma=4``, but
-    avoids the previous bug where changing ``gamma_D`` had no effect at all.
+    ``D(z) = C_D || alpha_D/(1+alpha_D) Phi_z
+                    + 1/(1+alpha_D) |grad Phi_z| ||_L2(Gamma)^(-gamma)``.
+
+    ``C_D`` is initialized by normalizing the active diagonal to unit maximum;
+    the first auxiliary pair in :func:`run_idsm_partial` subsequently performs
+    the paper's dynamic block scaling.
     """
     centroids = mesh.centroids
     bdry_edges = mesh.boundary_edges
@@ -128,26 +130,32 @@ def compute_heterogeneous_D(mesh, gamma_d_node_mask, alpha_d, alpha_n, gamma=4.0
     edge_on_d = gamma_d_node_mask[n0] & gamma_d_node_mask[n1]
     alpha_edge = np.where(edge_on_d, alpha_d, alpha_n)
 
-    # Weight factor: 1/(1+alpha), large on Gamma_D, small on Gamma_N
-    weight = 1.0 / (1.0 + alpha_edge)
-
-    # Distance calculation
+    # Fundamental solution and gradient magnitude at edge endpoints.
     diff0 = centroids[:, None, :] - p0[None, :, :]
     diff1 = centroids[:, None, :] - p1[None, :, :]
-    r0_sq = np.sum(diff0**2, axis=2) + 1e-20
-    r1_sq = np.sum(diff1**2, axis=2) + 1e-20
+    r0 = np.sqrt(np.sum(diff0**2, axis=2) + 1e-30)
+    r1 = np.sqrt(np.sum(diff1**2, axis=2) + 1e-30)
+    phi0 = -np.log(r0) / (2.0 * np.pi)
+    phi1 = -np.log(r1) / (2.0 * np.pi)
+    grad0 = 1.0 / (2.0 * np.pi * r0)
+    grad1 = 1.0 / (2.0 * np.pi * r1)
 
-    # Weighted integral: sum_e w_e * L_e/2 * (1/r0^2 + 1/r1^2)
-    # Same structure as idsm.py initialize_r0_diagonal, with added w_e weight
-    integrand = weight[None, :] * lengths[None, :] * 0.5 * (1.0 / r0_sq + 1.0 / r1_sq)
-    integral = np.sum(integrand, axis=1)
-
-    exponent = float(gamma) / 8.0
-    D = 1.0 / np.power(integral + 1e-30, exponent)
+    a_phi = alpha_edge / (1.0 + alpha_edge)
+    a_grad = 1.0 / (1.0 + alpha_edge)
+    term0 = a_phi[None, :] * phi0 + a_grad[None, :] * grad0
+    term1 = a_phi[None, :] * phi1 + a_grad[None, :] * grad1
+    norm_sq = np.sum(
+        0.5 * lengths[None, :] * (term0**2 + term1**2),
+        axis=1,
+    )
+    D = np.power(np.sqrt(norm_sq) + 1e-30, -float(gamma))
 
     # Near-boundary cutoff (epsilon_Omega cutoff)
     d2b = distance_to_boundary(mesh, centroids)
     D[d2b < epsilon] = 0.0
+    active = D > 0.0
+    if np.any(active):
+        D[active] /= np.max(D[active])
     return D
 
 
@@ -312,6 +320,8 @@ def run_idsm_partial(
     gamma_D=4.0,
     epsilon_cutoff=0.02,
     p_norm=2.0,
+    coarse_mesh=None,
+    stabilization=True,
     verbose=True,
     runtime_config=None,
 ):
@@ -360,7 +370,8 @@ def run_idsm_partial(
         epsilon=epsilon_cutoff,
     )
     base_diag = np.concatenate([D, np.ones(M_tri)])
-    coarse_mesh = generate_coarse_mesh(target_triangles=1770)
+    if coarse_mesh is None:
+        coarse_mesh = generate_coarse_mesh(target_triangles=1770)
     resolver = StabilizedLowRankResolver(
         base_diag=base_diag,
         fine_mesh=mesh,
@@ -460,7 +471,8 @@ def run_idsm_partial(
         Axc, Axv = compute_p0_gradient(mesh, w_ax_list, yU_list)
         zeta_hat = np.concatenate([Axc, Axv])
 
-        resolver.stabilize(lambda_prev)
+        if stabilization:
+            resolver.stabilize(lambda_prev)
         r_tilde_zeta = resolver.apply_stabilized(zeta_hat)
 
         cErr = (sigma_bg - sigma_guess) / max(abs(sigma_bg - sigma_range), 1e-30)

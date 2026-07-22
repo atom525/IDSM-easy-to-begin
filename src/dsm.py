@@ -320,7 +320,7 @@ def compute_dsm_indicator(mesh, cauchy_data, gamma=0.5, n_grid=201,
 
     grid_points, grid_x, grid_y, mask = generate_sampling_grid(n_grid)
 
-    numerator_grid = _interpolate_p1_to_grid(mesh, zeta_sum, grid_points)
+    numerator_grid = interpolate_p1_to_points(mesh, zeta_sum, grid_points)
 
     if denom_method == 'integral':
         denom = compute_dsm_denominator_integral(mesh, grid_points)
@@ -348,8 +348,36 @@ def compute_dsm_indicator(mesh, cauchy_data, gamma=0.5, n_grid=201,
 # P1 interpolation to grid points
 # ============================================================
 
-def _interpolate_p1_to_grid(mesh, values, grid_points):
-    """Interpolate P1 FEM solution to arbitrary grid points via barycentric coordinates."""
+def interpolate_p1_to_points(mesh, values, points):
+    """Interpolate a nodal P1 field to arbitrary points.
+
+    Parameters
+    ----------
+    mesh : EllipticMesh
+        P1 finite-element mesh.
+    values : ndarray, shape (mesh.n_points,)
+        Nodal coefficients of the P1 field.
+    points : ndarray, shape (n_query, 2)
+        Cartesian query coordinates.
+
+    Returns
+    -------
+    ndarray, shape (n_query,)
+        Barycentrically interpolated values. For a query just outside the
+        triangulation, the nearest triangle is used with clipped barycentric
+        coordinates. This is the public interpolation step used by the DSM
+        wrapper before applying the denominator in Eq. (2.8).
+    """
+    values = np.asarray(values)
+    grid_points = np.asarray(points, dtype=float)
+    if values.shape != (mesh.n_points,):
+        raise ValueError(
+            f"values must have shape ({mesh.n_points},), got {values.shape}"
+        )
+    if grid_points.ndim != 2 or grid_points.shape[1] != 2:
+        raise ValueError(
+            f"points must have shape (n_query, 2), got {grid_points.shape}"
+        )
     K = len(grid_points)
     interpolated = np.zeros(K)
 
@@ -424,6 +452,11 @@ def _interpolate_p1_to_grid(mesh, values, grid_points):
                 )
 
     return interpolated
+
+
+def _interpolate_p1_to_grid(mesh, values, grid_points):
+    """Backward-compatible private alias for :func:`interpolate_p1_to_points`."""
+    return interpolate_p1_to_points(mesh, values, grid_points)
 
 
 # ============================================================

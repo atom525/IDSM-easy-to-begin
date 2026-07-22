@@ -13,7 +13,7 @@ with NumPy/SciPy/scikit-fem building blocks:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional, Sequence, Tuple
 
 import numpy as np
@@ -675,7 +675,9 @@ def solve_adjoint_segment(
     y_residual_history: np.ndarray,
     measurement_history: np.ndarray,
     cfg: ParabolicConfig,
-) -> Tuple[np.ndarray, float]:
+    *,
+    return_history: bool = False,
+) -> Tuple[np.ndarray, float] | Tuple[np.ndarray, float, np.ndarray]:
     """Matches the corresponding parabolic FreeFEM reference block.
 
         Amatrix * yDual_new = (M/dt - 0.5 K_cA - 0.5 M_vA) * yDual + M_bdry * yEmptyHistory[j]
@@ -707,6 +709,7 @@ def solve_adjoint_segment(
 
     A_rhs_op = (ops.M / inv_dt) - ops.K_cA - ops.M_vA
     y_dual = np.zeros(n_pts)
+    dual_history = np.zeros((n_sub + 1, n_pts))
     norm_acc = 0.0
 
     for j in range(n_sub, 0, -1):
@@ -714,8 +717,11 @@ def solve_adjoint_segment(
         norm_acc += float(meas_resid @ (ops.M_bdry @ meas_resid))
         rhs = A_rhs_op @ y_dual + ops.M_bdry @ meas_resid
         y_dual = ops.A_lhs_solver.solve(rhs)
+        dual_history[j - 1] = y_dual
 
     normal_scale = 1.0 / max(norm_acc, 1e-300)
+    if return_history:
+        return y_dual, normal_scale, dual_history
     return y_dual, normal_scale
 
 
@@ -2194,25 +2200,63 @@ def ground_truth_p0_example_5_5(coarse_mesh: EllipticMesh, t: float, cfg: Parabo
 # ============================================================
 
 def paper_cfg_example_5_1(noise: float = 0.05) -> ParabolicConfig:
-    """Paper-style Example 5.1 noise with FreeFEM numerical defaults."""
-    return edp_cfg_example_5_1(noise=noise)
+    """Paper 2 Section 5.1 parameters (T=10, dt=0.01/0.0125, lambda=0.6)."""
+    return replace(
+        edp_cfg_example_5_1(noise=noise),
+        total_time=10.11,
+        forward_dt=0.01,
+        delta_t=0.1,
+        delta_t_split=8,
+        tolerance=0.10,
+        forget_scale=0.6,
+    )
 
 
 def paper_cfg_example_5_2(noise: float = 0.05) -> ParabolicConfig:
-    """Paper-style Example 5.2 noise with FreeFEM numerical defaults."""
-    return edp_cfg_example_5_2(noise=noise)
+    """Paper 2 Section 5.2 parameters."""
+    return replace(
+        edp_cfg_example_5_2(noise=noise),
+        total_time=10.11,
+        forward_dt=0.01,
+        delta_t=0.1,
+        delta_t_split=8,
+        forget_scale=0.6,
+    )
 
 
 def paper_cfg_example_5_3(noise: float = 0.05) -> ParabolicConfig:
-    """Paper-style Example 5.3 noise with FreeFEM numerical defaults."""
-    return edp_cfg_example_5_3(noise=noise)
+    """Paper 2 Section 5.3 nonlinear parameters."""
+    return replace(
+        edp_cfg_example_5_3(noise=noise),
+        total_time=10.11,
+        forward_dt=0.01,
+        delta_t=0.1,
+        delta_t_split=8,
+        forget_scale=0.6,
+    )
 
 
 def paper_cfg_example_5_4(noise: float = 0.05) -> ParabolicConfig:
-    """Paper-style Example 5.4 noise with FreeFEM numerical defaults."""
-    return edp_cfg_example_5_4(noise=noise)
+    """Paper 2 Section 5.4 parameters."""
+    return replace(
+        edp_cfg_example_5_4(noise=noise),
+        total_time=10.11,
+        forward_dt=0.01,
+        delta_t=0.1,
+        delta_t_split=8,
+        forget_scale=0.6,
+        lowrank='DFP',
+    )
 
 
 def paper_cfg_example_5_5(noise: float = 0.05) -> ParabolicConfig:
-    """Paper-style Example 5.5 noise with FreeFEM numerical defaults."""
-    return edp_cfg_example_5_5(noise=noise)
+    """Paper 2 Section 5.5 parameters."""
+    return replace(
+        edp_cfg_example_5_5(noise=noise),
+        total_time=10.11,
+        forward_dt=0.01,
+        delta_t=0.1,
+        delta_t_split=8,
+        forget_scale=0.6,
+        lowrank='BFG',
+    )

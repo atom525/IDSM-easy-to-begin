@@ -1,16 +1,17 @@
-"""Generate the main Section 5 parabolic reproduction figures.
+"""Generate the main Section 5 parabolic paper figures.
 
 This script reads the Python-generated caches in ``results/parabolic`` and
-writes one main figure per FreeFEM-default example to ``figures/05_parabolic``:
+writes one canonical figure per paper-profile example to ``figures/05_parabolic``:
 
-- ``fig_5_1.png``: Example 5.1, 5% noise
-- ``fig_5_1_noise10.png``: Example 5.1, 10% noise
-- ``fig_5_2.png``: Example 5.2
-- ``fig_5_3.png``: Example 5.3
-- ``fig_5_4.png``: Example 5.4
-- ``fig_5_5.png``: Example 5.5
+- ``05_paper_ex5_1.png``: Example 5.1, 5% noise
+- ``05_paper_ex5_1_noise10.png``: Example 5.1, 10% noise
+- ``05_paper_ex5_2.png``: Example 5.2
+- ``05_paper_ex5_3.png``: Example 5.3
+- ``05_paper_ex5_4.png``: Example 5.4
+- ``05_paper_ex5_5.png``: Example 5.5
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -62,17 +63,17 @@ def _radii_5_3(_t, traj_index):
 
 
 MAIN_FIGURES = [
-    ('5_1', 'paper', 'fig_5_1.png', 'Example 5.1: Conductivity Merging (5% noise)',
+    ('5_1', 'paper', '05_paper_ex5_1.png', 'Example 5.1: Conductivity Merging (5% noise)',
      trajectory_example_5_1, lambda t, i: radius_example_5_1(i), (0, 1), 'cond'),
-    ('5_1_n10', 'paper', 'fig_5_1_noise10.png', 'Example 5.1: Conductivity Merging (10% noise)',
+    ('5_1_n10', 'paper', '05_paper_ex5_1_noise10.png', 'Example 5.1: Conductivity Merging (10% noise)',
      trajectory_example_5_1, lambda t, i: radius_example_5_1(i), (0, 1), 'cond'),
-    ('5_2', 'paper', 'fig_5_2.png', 'Example 5.2: Mixed Moving',
+    ('5_2', 'paper', '05_paper_ex5_2.png', 'Example 5.2: Mixed Moving',
      trajectory_example_5_2, _radii_5_2, (0, 1, 2), 'double'),
-    ('5_3', 'edp', 'fig_5_3.png', 'Example 5.3: Nonlinear U Recovery',
+    ('5_3', 'paper', '05_paper_ex5_3.png', 'Example 5.3: Nonlinear U Recovery',
      trajectory_example_5_3, _radii_5_3, (0,), 'nonlinear'),
-    ('5_4', 'edp', 'fig_5_4.png', 'Example 5.4: Potential Fading',
+    ('5_4', 'paper', '05_paper_ex5_4.png', 'Example 5.4: Potential Fading',
      trajectory_example_5_4, lambda t, i: radius_example_5_4(i), (2, 3), 'pot'),
-    ('5_5', 'paper', 'fig_5_5.png', 'Example 5.5: Conductivity Diminishing',
+    ('5_5', 'paper', '05_paper_ex5_5.png', 'Example 5.5: Conductivity Diminishing',
      trajectory_example_5_5, radius_example_5_5, (0, 1), 'cond'),
 ]
 
@@ -247,7 +248,7 @@ def plot_main_figure(key, mode, filename, title, traj_func, radius_func, idx_tup
 
 def make_table():
     lines = [
-        '# Main Parabolic FreeFEM-Default Reproduction Summary',
+        '# Main Parabolic Paper-Profile Summary',
         '',
         (
             f"{'Example':<10s} {'cache':<18s} {'n_seg':>6s} {'inner':>7s} "
@@ -255,6 +256,7 @@ def make_table():
             f"{'IoU_mean':>9s} {'IoU_max':>8s} {'runtime':>8s}"
         ),
     ]
+    summary = {}
     for key, mode, _filename, _title, *_rest in MAIN_FIGURES:
         data = load_npz(key, mode)
         iou = data['iou_history']
@@ -275,11 +277,35 @@ def make_table():
             f"{float(iou.mean()):>9.3f} {float(iou.max()):>8.3f} "
             f"{float(data['runtime_seconds']):>7.1f}s"
         )
+        cache_key = f"ex_{key}_{mode}"
+        summary[cache_key] = {
+            "noise": float(data["noise_level"]),
+            "total_time": float(data["cfg_total_time"]),
+            "forward_dt": float(data["cfg_forward_dt"]),
+            "delta_t": float(data["cfg_delta_t"]),
+            "delta_t_split": int(data["cfg_delta_t_split"]),
+            "forget_scale": float(data["cfg_forget_scale"]),
+            "lowrank": str(data["cfg_lowrank"]),
+            "mesh_mode": str(data["mesh_mode"]),
+            "data_triangles": int(data["data_triangles"]),
+            "solve_triangles": int(data["solve_triangles_count"]),
+            "coefficient_triangles": int(data["coeff_triangles_count"]),
+            "segments": int(iou.shape[0]),
+            "mean_inner_iterations": inner_mean,
+            "mean_pde_solves": total,
+            "iou_mean": float(iou.mean()),
+            "iou_max": float(iou.max()),
+            "iou_final": float(iou[-1]),
+            "runtime_seconds": float(data["runtime_seconds"]),
+        }
     out = '\n'.join(lines)
     out_path = ROOT / 'figures' / '05_parabolic' / 'table1.txt'
     out_path.write_text(out)
+    summary_path = ROOT / 'results' / 'parabolic' / 'summary.json'
+    summary_path.write_text(json.dumps(summary, indent=2))
     print(out)
     print(f'saved {out_path}')
+    print(f'saved {summary_path}')
 
 
 if __name__ == '__main__':

@@ -258,6 +258,12 @@ def compute_author_inputs_from_fields(
     if e_i_c.shape != e_s_c.shape:
         raise ValueError(f"E_i/E_s shape mismatch: {e_i_c.shape} vs {e_s_c.shape}")
     n_re, n_total_inc, n_samples = e_i_c.shape
+    n_pixels = int(r.shape[1])
+    image_size = int(round(np.sqrt(n_pixels)))
+    if image_size * image_size != n_pixels:
+        raise ValueError(
+            f"R_mat second dimension must be a square image size, got {n_pixels}"
+        )
     idx = select_incidence_indices(n_total_inc, n_incident)
     e_i_sel = e_i_c[:, idx, :]
     e_s_sel = e_s_c[:, idx, :]
@@ -280,8 +286,10 @@ def compute_author_inputs_from_fields(
     def _reshape_indicator(delta_field: np.ndarray) -> np.ndarray:
         # Exactly mirrors: torch.matmul(torch.t(delta.reshape(N_re,-1)), Gs)
         merged = delta_field.reshape(n_re, -1).T  # (n_incident*n_samples, n_re)
-        ind = merged @ gs  # (n_incident*n_samples, 4096)
-        ind = ind.reshape(n_incident, n_samples, 64, 64).transpose(1, 0, 3, 2)
+        ind = merged @ gs  # (n_incident*n_samples, image_size**2)
+        ind = ind.reshape(
+            n_incident, n_samples, image_size, image_size
+        ).transpose(1, 0, 3, 2)
         return np.abs(ind).astype(np.float32)
 
     ind_clean = _reshape_indicator(delta)
@@ -296,6 +304,7 @@ def compute_author_inputs_from_fields(
         "delta": delta,
         "delta_noise": delta_noise,
         "mm_scale": float(mm_scale),
+        "image_size": image_size,
     }
 
 
@@ -387,6 +396,31 @@ class AuthorUNet3Ab(nn.Module):
         d1 = self.conv1d(d1)
         d1 = self.conv_1(d1)
         return torch.relu(d1)
+
+    def forward_with_trace(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, tuple[int, ...]]]:
+        """Run ``U_Net3Ab`` and record the released network's stage shapes."""
+        trace: dict[str, tuple[int, ...]] = {"input": tuple(x.shape)}
+        x1 = self.conv1(x)
+        trace["encoder_1"] = tuple(x1.shape)
+        x2 = self.conv2(self.maxpool(x1))
+        trace["encoder_2"] = tuple(x2.shape)
+        x3 = self.conv3(self.maxpool(x2))
+        trace["encoder_3"] = tuple(x3.shape)
+        x4 = self.conv4(self.maxpool(x3))
+        trace["encoder_4"] = tuple(x4.shape)
+
+        d3 = self.conv3d(torch.cat((x3, self.up43(x4)), dim=1))
+        trace["decoder_3"] = tuple(d3.shape)
+        d2 = self.conv2d(torch.cat((x2, self.up32(d3)), dim=1))
+        trace["decoder_2"] = tuple(d2.shape)
+        d1 = self.conv1d(torch.cat((x1, self.up21(d2)), dim=1))
+        trace["decoder_1"] = tuple(d1.shape)
+        output = torch.relu(self.conv_1(d1))
+        trace["output"] = tuple(output.shape)
+        return output, trace
 
 
 def _author_tv(pred: torch.Tensor) -> torch.Tensor:

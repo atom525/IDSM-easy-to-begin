@@ -496,6 +496,7 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
         'sigma_guess': [],
         'potential_guess': [],
         'residuals': [residual],
+        'diagnostics': [],
     }
 
     sigma_min = min(sigma_bg, sigma_range)
@@ -506,12 +507,23 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
     for n in range(n_iter):
         # Step 4: ζ_k = Σ_ℓ B_τ[y_ℓ]* w_ℓ
         gradc, gradv = compute_p0_gradient(mesh, w_fixed, yU_list)
+        iteration_trace = {
+            'iteration': n,
+            'gradient_norm_conductivity': float(np.linalg.norm(gradc)),
+            'gradient_norm_potential': float(np.linalg.norm(gradv)),
+        }
 
         # Step 5: η_k = R_k · ζ_k
         Atb = np.concatenate([gradc, gradv])
         RAx = R.apply(Atb)
         gradc = RAx[:M_tri]
         gradv = RAx[M_tri:]
+        iteration_trace['indicator_range_conductivity'] = (
+            float(np.min(gradc)), float(np.max(gradc))
+        )
+        iteration_trace['indicator_range_potential'] = (
+            float(np.min(gradv)), float(np.max(gradv))
+        )
 
         # Thresholding (FreeFEM L339-340)
         # Direction depends on whether sigma_range < sigma_bg (insulating)
@@ -556,6 +568,12 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
         # Box constraint (FreeFEM L369-372)
         sigma_guess = np.clip(sigma_guess, sigma_min, sigma_max)
         potential_guess = np.clip(potential_guess, pot_min, pot_max)
+        iteration_trace['projection_range_conductivity'] = (
+            float(np.min(sigma_guess)), float(np.max(sigma_guess))
+        )
+        iteration_trace['projection_range_potential'] = (
+            float(np.min(potential_guess)), float(np.max(potential_guess))
+        )
 
         history['sigma_guess'].append(sigma_guess.copy())
         history['potential_guess'].append(potential_guess.copy())
@@ -620,6 +638,11 @@ def run_idsm(mesh, cauchy_data, sigma_bg=1.0, potential_bg=1e-10,
 
         # Step 10: Store low-rank correction
         R.update(sk, yk, ryk)
+        secant_residual = R.apply(yk) - sk
+        iteration_trace['secant_relative_residual'] = float(
+            np.linalg.norm(secant_residual) / (np.linalg.norm(sk) + 1e-30)
+        )
+        history['diagnostics'].append(iteration_trace)
 
     history['sigma_final'] = sigma_guess
     history['potential_final'] = potential_guess

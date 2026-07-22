@@ -1,8 +1,8 @@
 """Strict paper-protocol reproduction runner for notebook6 / arXiv:2403.02584.
 
 This script executes paper-scale experiments and writes:
-  - results/phaseless/full_summary.json
-  - results/phaseless/full_comparison.md
+  - results/phaseless/paper_summary.json
+  - results/phaseless/paper_comparison.md
   - figures/06_phaseless/full_*.png
 
 Key strict alignments vs the previous proxy-based version:
@@ -610,7 +610,7 @@ def _section51_dsm(summary: dict, *, seed: int, out_fig: Path) -> None:
             axes[i, j].set_xticks([-1, 0, 1])
             axes[i, j].set_yticks([-1, 0, 1])
     fig.tight_layout()
-    save_figure(fig, out_fig / "full_fig2_4_examples1_3.png", dpi=170)
+    save_figure(fig, out_fig / "06_paper_fig2_4_examples1_3.png", dpi=170)
     plt.close(fig)
 
     fig, axes = plt.subplots(3, 3, figsize=(12.5, 9.0))
@@ -628,7 +628,7 @@ def _section51_dsm(summary: dict, *, seed: int, out_fig: Path) -> None:
             axes[row, j].set_xticks([-1, 0, 1])
             axes[row, j].set_yticks([-1, 0, 1])
     fig.tight_layout()
-    save_figure(fig, out_fig / "full_fig5_ring_ni_sweep.png", dpi=170)
+    save_figure(fig, out_fig / "06_paper_fig5_ring_ni_sweep.png", dpi=170)
     plt.close(fig)
 
 
@@ -710,10 +710,10 @@ def _emit_comparison(summary: dict, *, out_res: Path) -> None:
         "- Chinese-character profiles are extracted from the visible truth row of paper Fig. 8; Austria-like profiles are constructed from the paper's textual description.",
     ])
 
-    (out_res / "full_summary.json").write_text(
+    (out_res / "paper_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False)
     )
-    (out_res / "full_comparison.md").write_text("\n".join(lines), encoding="utf-8")
+    (out_res / "paper_comparison.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def run(args: argparse.Namespace) -> dict:
@@ -794,7 +794,7 @@ def run(args: argparse.Namespace) -> dict:
         "accuracy": poly_metrics,
     }
     _save_polygon_fig6(
-        out_fig / "fig6_polygon_recon.png",
+        out_fig / "06_paper_fig6_polygon.png",
         poly_cases, seed=args.seed, device=args.device, mnist_download=args.mnist_download,
     )
     for ni in list(poly_cases):
@@ -882,17 +882,17 @@ def run(args: argparse.Namespace) -> dict:
         "relative_l2": mnist_metrics,
     }
     _save_mnist_fig7(
-        out_fig / "fig7_mnist_recon.png",
+        out_fig / "06_paper_fig7_mnist.png",
         mnist_cases, seed=args.seed, device=args.device, mnist_download=args.mnist_download,
     )
     _save_ood_grid(
-        out_fig / "fig8_chinese_recon.png",
+        out_fig / "06_paper_fig8_chinese.png",
         title="Fig.8 Chinese-character OOD reconstructions",
         truth_labels=char_labels,
         models=mnist_cases, seed=args.seed + 8500, device=args.device,
     )
     _save_ood_grid(
-        out_fig / "fig9_austria_recon.png",
+        out_fig / "06_paper_fig9_austria.png",
         title="Fig.9 Austria ring OOD reconstructions",
         truth_labels=np.concatenate([austria_1, austria_2], axis=0),
         models=mnist_cases, seed=args.seed + 8800, device=args.device,
@@ -946,14 +946,14 @@ def run(args: argparse.Namespace) -> dict:
         "metrics": mix_metrics,
     }
     _save_mixed_fig10(
-        out_fig / "fig10_mixed_recon.png",
+        out_fig / "06_paper_fig10_mixed.png",
         case, seed=args.seed, device=args.device, mnist_download=args.mnist_download,
     )
     _cleanup(case["model"])
 
     _emit_comparison(summary, out_res=out_res)
-    print(f"[ok] wrote {out_res / 'full_summary.json'}")
-    print(f"[ok] wrote {out_res / 'full_comparison.md'}")
+    print(f"[ok] wrote {out_res / 'paper_summary.json'}")
+    print(f"[ok] wrote {out_res / 'paper_comparison.md'}")
     return summary
 
 

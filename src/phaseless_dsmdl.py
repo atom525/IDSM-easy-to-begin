@@ -523,6 +523,31 @@ class UNetDSMDL(nn.Module):
             h = dec(torch.cat([h, skip], dim=1))
         return self.head(h)
 
+    def forward_with_trace(self, x: Tensor) -> tuple[Tensor, dict[str, tuple[int, ...]]]:
+        """Run the U-Net while recording encoder/decoder tensor shapes."""
+        trace: dict[str, tuple[int, ...]] = {"input": tuple(x.shape)}
+        skips: list[Tensor] = []
+        h = x
+        for level, enc in enumerate(self.encoders, start=1):
+            h = enc(h)
+            skips.append(h)
+            trace[f"encoder_{level}"] = tuple(h.shape)
+            h = self.pool(h)
+            trace[f"pool_{level}"] = tuple(h.shape)
+        h = self.bottleneck(h)
+        trace["bottleneck"] = tuple(h.shape)
+        for level, (up, dec, skip) in enumerate(
+            zip(self.up_blocks, self.decoders, reversed(skips)),
+            start=1,
+        ):
+            h = up(h)
+            trace[f"upsample_{level}"] = tuple(h.shape)
+            h = dec(torch.cat([h, skip], dim=1))
+            trace[f"decoder_{level}"] = tuple(h.shape)
+        output = self.head(h)
+        trace["output"] = tuple(output.shape)
+        return output, trace
+
 
 def tv_loss(x: Tensor) -> Tensor:
     """Anisotropic TV regularizer."""

@@ -24,6 +24,9 @@ from src.idsm_parabolic import (
     compute_zeta_p0,
     edp_cfg_example_5_1,
     init_diag_func,
+    paper_cfg_example_5_1,
+    paper_cfg_example_5_4,
+    paper_cfg_example_5_5,
     project_p1_fine_to_coarse,
     radius_example_5_1,
     run_idsm_parabolic,
@@ -45,6 +48,17 @@ def test_config_segment_count_matches_freefem_loop():
     assert int(np.floor(cfg.total_time / cfg.delta_t)) == 102
     # FreeFEM loops tIndex < inverseTimeNum - 1.
     assert cfg.n_segments == 101
+
+
+def test_paper_config_uses_paper_time_and_damping_parameters():
+    cfg = paper_cfg_example_5_1(noise=0.05)
+    assert cfg.forward_dt == pytest.approx(0.01)
+    assert cfg.inverse_dt == pytest.approx(0.0125)
+    assert cfg.forget_scale == pytest.approx(0.6)
+    assert cfg.tolerance == pytest.approx(0.10)
+    assert cfg.n_segments == 100
+    assert paper_cfg_example_5_4().lowrank == 'DFP'
+    assert paper_cfg_example_5_5().lowrank == 'BFG'
 
 
 def test_example_5_1_geometry_matches_reference():
@@ -76,6 +90,19 @@ def test_adjoint_normal_scale_uses_residual_energy(small_mesh):
     _, normal_scale = solve_adjoint_segment(small_mesh, ops, residual, measurement, cfg)
     expected = 1.0 / sum(float(r @ (ops.M_bdry @ r)) for r in residual)
     assert normal_scale == pytest.approx(expected)
+
+
+def test_adjoint_history_exposes_backward_time_direction(small_mesh):
+    cfg = ParabolicConfig(delta_t=0.1, delta_t_split=3)
+    ops = assemble_const_operators(small_mesh, cfg)
+    residual = np.ones((cfg.delta_t_split, small_mesh.n_points))
+    measurement = residual.copy()
+    y_dual, _, history = solve_adjoint_segment(
+        small_mesh, ops, residual, measurement, cfg, return_history=True,
+    )
+    assert history.shape == (cfg.delta_t_split + 1, small_mesh.n_points)
+    assert np.allclose(history[-1], 0.0)
+    assert np.allclose(history[0], y_dual)
 
 
 def test_empty_forward_and_local_dual_shapes(small_mesh):

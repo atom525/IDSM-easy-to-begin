@@ -69,6 +69,11 @@ def test_idsm_sigma_history_length(mesh, cauchy_data):
         problem_type="conductivity", verbose=False,
     )
     assert len(hist["sigma_guess"]) == n_iter
+    assert len(hist["diagnostics"]) == n_iter
+    for k, trace in enumerate(hist["diagnostics"]):
+        assert trace["iteration"] == k
+        assert np.isfinite(trace["gradient_norm_conductivity"])
+        assert np.isfinite(trace["secant_relative_residual"])
 
 
 def test_idsm_dfp_vs_bfg_both_work(mesh, cauchy_data):

@@ -682,6 +682,47 @@ class PhaselessBatchSimulator:
             u_total_r_chunks.append(self._total_at_recv_with_lu(LU, piv, c_sub, angle))
         return torch.cat(u_total_r_chunks, dim=0)
 
+    def forward_total_at_receivers(
+        self,
+        labels: np.ndarray,
+        angle: float,
+    ) -> np.ndarray:
+        """Solve the strict medium VIE and return total receiver fields.
+
+        Parameters
+        ----------
+        labels : ndarray, shape (H, W) or (B, H, W)
+            Real refractive-index labels on the scan grid. This public teaching
+            step is for penetrable media; obstacle metadata should use the BIE
+            functions in :mod:`src.phaseless_bie`.
+        angle : float
+            Plane-wave incidence angle in radians.
+
+        Returns
+        -------
+        ndarray, shape (B, n_receivers)
+            Complex total fields. The method uses the same LU-discretized VIE
+            as :func:`run_example_dsm_paper`, enabling exact manual/wrapper
+            comparisons in Notebook 06.
+        """
+        arr = np.asarray(labels, dtype=np.float32)
+        if arr.ndim == 2:
+            arr = arr[None, :, :]
+        if arr.ndim != 3 or arr.shape[1:] != (
+            self.scan_grid_size,
+            self.scan_grid_size,
+        ):
+            raise ValueError(
+                "labels must have shape "
+                f"(H, W) or (B, H, W) with H=W={self.scan_grid_size}; "
+                f"got {arr.shape}"
+            )
+        labels_t = torch.from_numpy(arr).to(self.device)
+        n_fwd_real = self._resize_to_forward(labels_t)
+        n_fwd = self._labels_to_complex_index(n_fwd_real).reshape(arr.shape[0], -1)
+        total = self._forward_total_at_recv(n_fwd, float(angle))
+        return total.detach().cpu().numpy()
+
     def _phaseless_indicator(
         self,
         total_r: torch.Tensor,

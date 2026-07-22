@@ -17,7 +17,7 @@ from src.fem import (
     assemble_partial_boundary_mass_matrix,
     assemble_stiffness_matrix,
 )
-from src.mesh import generate_elliptic_mesh
+from src.mesh import generate_disk_mesh_paper, generate_elliptic_mesh
 
 
 @pytest.fixture
@@ -118,6 +118,16 @@ def test_heterogeneous_D_uses_gamma_parameter(mesh, gamma_d):
     assert rel > 1e-3
 
 
+def test_heterogeneous_D_matches_paper_cutoff_and_normalization(mesh, gamma_d):
+    D = compute_heterogeneous_D(
+        mesh, gamma_d["node_mask"],
+        alpha_d=0.05, alpha_n=2.0, gamma=4.0, epsilon=0.02,
+    )
+    assert np.all(np.isfinite(D))
+    assert np.min(D) >= 0.0
+    assert np.isclose(np.max(D), 1.0)
+
+
 def test_stabilize_lambda_damps_lowrank_action(mesh):
     """Scaling s/ry but not y makes (1+lambda)^-1 an actual correction weight."""
     n = mesh.n_triangles
@@ -179,6 +189,25 @@ def test_partial_idsm_reconstruction_residual_decreases(mesh, gamma_d):
     sigma_final = hist["sigma_final"]
     assert np.all(sigma_final >= 0.3 - 1e-10)
     assert np.all(sigma_final <= 1.0 + 1e-10)
+
+
+def test_partial_idsm_accepts_unit_disk_coarse_mesh():
+    disk = generate_disk_mesh_paper(target_triangles=500)
+    coarse = generate_disk_mesh_paper(target_triangles=150)
+    gamma_d = define_accessible_boundary(disk, (-np.pi / 2, np.pi / 2), a=1.0, b=1.0)
+    sigma = np.ones(disk.n_triangles)
+    sigma[np.linalg.norm(disk.centroids - np.array([0.3, 0.0]), axis=1) < 0.2] = 0.1
+    data = generate_cauchy_data(
+        disk, sigma, [lambda x, y: x],
+        noise_level=0.01, rng=np.random.default_rng(3),
+    )
+    hist = run_idsm_partial(
+        disk, data, gamma_d, n_iter=2,
+        sigma_bg=1.0, sigma_range=0.01,
+        coarse_mesh=coarse, stabilization=False, verbose=False,
+    )
+    assert len(hist["residuals"]) == 3
+    assert np.all(np.isfinite(hist["sigma_final"]))
 
 
 def test_hr_dtn_alpha_asymmetry(mesh, gamma_d):

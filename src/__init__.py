@@ -31,7 +31,11 @@ from .forward_solver import (
     solve_forward_general,
     square_inclusion,
 )
-from .dsm import compute_dsm_indicator, discretize_laplace_beltrami
+from .dsm import (
+    compute_dsm_indicator,
+    discretize_laplace_beltrami,
+    interpolate_p1_to_points,
+)
 from .idsm import run_idsm
 from .idsm_partial import run_idsm_partial
 from .mesh import generate_disk_mesh
@@ -131,6 +135,7 @@ __all__ = [
     # dsm
     "discretize_laplace_beltrami",
     "compute_dsm_indicator",
+    "interpolate_p1_to_points",
     # idsm
     "run_idsm",
     "run_idsm_partial",

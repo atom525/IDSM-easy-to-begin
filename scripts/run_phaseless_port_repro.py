@@ -138,7 +138,7 @@ def run(args: argparse.Namespace) -> dict:
     test_rel_l2 = relative_l2_legacy(pred_test, y_test)
 
     ckpt_dir = ROOT / "results" / "phaseless" / "checkpoints"
-    ckpt_path = ckpt_dir / f"legacy_UNETCircle_Ni{args.n_incident}.pt"
+    ckpt_path = ckpt_dir / f"reference_UNETCircle_Ni{args.n_incident}.pt"
     save_checkpoint(
         ckpt_path,
         model=model,
@@ -150,7 +150,7 @@ def run(args: argparse.Namespace) -> dict:
         },
     )
 
-    out_fig = ROOT / "figures" / "06_phaseless" / "legacy_mnist_recon.png"
+    out_fig = ROOT / "figures" / "06_phaseless" / "06_reference_mnist.png"
     _render_samples(
         model=model,
         x_np=x_noisy,
